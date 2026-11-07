@@ -138,7 +138,7 @@ function procesarCliente_(r, tasas, desdeCero) {
   // Publicar en GitHub solo si cambió algo (datos, tasas, código o método)
   var pub = '';
   var huella = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
-    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1]));
+    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1] + '|plantilla-2'));
   if (datos.pubHash !== huella) {
     try { publicarTablero_(String(r[COL.clave - 1]), r[COL.rif - 1], r[COL.codigo - 1], pkg); datos.pubHash = huella; pub = ' · publicado'; }
     catch (e) { pub = ' · NO PUBLICADO: ' + e.message; }
