@@ -1,6 +1,6 @@
-<!doctype html>
-<html lang="es"><head><base target="_top"><meta charset="utf-8">
+<title>__TITLE__</title>
 <meta name="robots" content="noindex,nofollow">
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -222,9 +222,8 @@ footer .rtab{max-width:420px;margin-top:6px}footer{border-top:1px solid var(--li
   .dhead,.dbody{padding-left:16px;padding-right:16px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-body{margin:0}
 </style>
-</head><body>
+
 <div id="lock">
   <form class="lockcard" id="lockform" autocomplete="off">
     <div class="brandline">
@@ -233,7 +232,7 @@ body{margin:0}
     </div>
     <div>
       <div class="eyebrow">Explorador de resultados</div>
-      <h1 style="margin-top:4px">Tu información contable</h1>
+      <h1 style="margin-top:4px">__EMPRESA__</h1>
     </div>
     <p>Para ver la información contable de tu empresa, ingresa su RIF y el código de acceso que te enviamos.</p>
     <div class="field">
@@ -289,6 +288,7 @@ body{margin:0}
 <div id="scrim" hidden></div>
 <aside id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="dtitle"></aside>
 
+<script id="pkg" type="application/json">__PKG__</script>
 <script>
 (function(){
 'use strict';
@@ -298,19 +298,36 @@ const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 let D=null;
 
 /* ---------------- desbloqueo ---------------- */
-const SLUG=<?= slug ?>;
-function unlock(rif,code){return new Promise((ok,ko)=>google.script.run.withSuccessHandler(t=>ok(JSON.parse(t))).withFailureHandler(e=>ko(e)).obtenerDatos(SLUG,rif,code))}
+async function unlock(rif){
+  const P=JSON.parse($('#pkg').textContent);
+  const pw=new TextEncoder().encode(rif.toUpperCase().replace(/[^A-Z0-9]/g,''));
+  let gz;
+  if(P.v===2){
+    const base=await crypto.subtle.importKey('raw',pw,'PBKDF2',false,['deriveBits']);
+    const bits=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:b64(P.s),iterations:P.it,hash:'SHA-256'},base,512));
+    const mk=await crypto.subtle.importKey('raw',bits.slice(32),{name:'HMAC',hash:'SHA-256'},false,['verify']);
+    const iv=b64(P.iv),ct=b64(P.ct),msg=new Uint8Array(iv.length+ct.length);msg.set(iv);msg.set(ct,iv.length);
+    if(!await crypto.subtle.verify('HMAC',mk,b64(P.mac),msg)) throw new Error('clave');
+    const ak=await crypto.subtle.importKey('raw',bits.slice(0,32),{name:'AES-CTR'},false,['decrypt']);
+    gz=await crypto.subtle.decrypt({name:'AES-CTR',counter:iv,length:128},ak,ct);
+  }else{
+    const base=await crypto.subtle.importKey('raw',pw,'PBKDF2',false,['deriveKey']);
+    const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(P.s),iterations:P.it,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+    gz=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(P.iv)},key,b64(P.ct));
+  }
+  const ds=new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return JSON.parse(await new Response(ds).text());
+}
 $('#lockform').addEventListener('submit',async e=>{
   e.preventDefault();
-  const err=$('#lockerr'); const b=$('#lockbtn');
+  const v=$('#rif').value.trim()+$('#code').value.trim(); const err=$('#lockerr'); const b=$('#lockbtn');
   if(!$('#rif').value.trim()||!$('#code').value.trim()){err.textContent='Escribe el RIF y el código de acceso.';return}
   b.disabled=true;b.textContent='Abriendo…';err.textContent='';
-  try{ D=await unlock($('#rif').value.trim(),$('#code').value.trim()); $('#rif').value='';$('#code').value=''; b.disabled=false;b.textContent='Entrar'; start(); }
-  catch(x){ err.textContent=(x&&x.message)||'No pudimos abrir tu información. Intenta de nuevo.'; b.disabled=false;b.textContent='Entrar'; }
+  try{ D=await unlock(v); $('#rif').value='';$('#code').value=''; start(); }
+  catch(x){ err.textContent='El RIF o el código no coinciden. Revisa que el RIF esté completo (por ejemplo J-12345678-9) y el código sea el que te enviamos.'; b.disabled=false;b.textContent='Entrar'; }
 });
-function logout(why){D=null;clearTimeout(idleT);idleT=null;if(S.drawer)closeDrawer();Object.keys(charts).forEach(k=>{try{charts[k].destroy()}catch(_){};delete charts[k]});
-  ['v-resumen','v-cuentas','v-alertas','v-riesgo'].forEach(id=>document.getElementById(id).innerHTML='');
-  $('#app').hidden=true;$('#lock').hidden=false;$('#lockerr').textContent=why==='idle'?'Por seguridad cerramos tu sesión después de 5 minutos sin uso. Vuelve a entrar.':'Sesión cerrada.';window.scrollTo(0,0)}
+try{sessionStorage.removeItem('ntk');const why=sessionStorage.getItem('ntbye');if(why){sessionStorage.removeItem('ntbye');$('#lockerr').textContent=why==='idle'?'Por seguridad cerramos tu sesión después de 5 minutos sin uso. Vuelve a entrar.':'Sesión cerrada.';}}catch(_){}
+function logout(why){try{sessionStorage.setItem('ntbye',why)}catch(_){}D=null;document.getElementById('app').innerHTML='';location.reload()}
 let idleT=null;const IDLE=5*60*1000;
 function armIdle(){clearTimeout(idleT);idleT=setTimeout(()=>logout('idle'),IDLE)}
 ['pointerdown','pointermove','keydown','wheel','touchstart','scroll'].forEach(ev=>window.addEventListener(ev,()=>{if(D)armIdle()},{passive:true}));
@@ -357,19 +374,11 @@ const amt=i=>S.cur==='bs'?D.cols.bs[i]:D.cols.usd[i];
 const alertsFor=a=>D.alerts.filter(x=>A[x.a]===a);
 
 /* ---------------- arranque ---------------- */
-let started=false;
 function start(){
-  ACC={};NODES={};openInit=false;openN.clear();S.rm=D.metodo||'c';$('#rsel').value=S.rm;S.m=-1;S.view='resumen';S.cur='bs';$('#cbs').setAttribute('aria-pressed','true');$('#cusd').setAttribute('aria-pressed','false');$('#msel').value='-1';
-  prep();armIdle();if(started){$('#lock').hidden=true;$('#app').hidden=false;}$('#logout').onclick=()=>logout('user');
+  prep();armIdle();$('#logout').onclick=()=>logout('user');
   $('#lock').hidden=true;$('#app').hidden=false;
   $('#cname').textContent=D.empresa;
   const lm=D.lastMi;
-  $('#cmeta').innerHTML=`<span>RIF <b>${esc(fmtRif(D.rif))}</b></span><span>Ejercicio <b>${mLab(0,true)} – ${mLab(D.months.length-1,true)}</b></span><span>Datos hasta <b>${mLab(lm,true)}</b></span><span>Actualizado <b>${esc(D.generado.split('-').reverse().join('/'))}</b></span>`;
-  if(started){finishStart();return}started=true;finishStart();
-}
-function finishStart(){
-  const lm=D.lastMi;
-  $('#cname').textContent=D.empresa;
   $('#cmeta').innerHTML=`<span>RIF <b>${esc(fmtRif(D.rif))}</b></span><span>Ejercicio <b>${mLab(0,true)} – ${mLab(D.months.length-1,true)}</b></span><span>Datos hasta <b>${mLab(lm,true)}</b></span><span>Actualizado <b>${esc(D.generado.split('-').reverse().join('/'))}</b></span>`;
   const ms=$('#msel');ms.innerHTML='<option value="-1">Todo el ejercicio</option>'+D.months.map((m,i)=>`<option value="${i}"${i>lm?' disabled':''}>${mLab(i,true)}</option>`).join('');
   ms.onchange=()=>{S.m=+ms.value;render()};
@@ -622,5 +631,3 @@ function renderList(){
 }
 })();
 </script>
-
-</body></html>

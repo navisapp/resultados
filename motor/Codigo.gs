@@ -133,12 +133,21 @@ function procesarCliente_(r, tasas, desdeCero) {
     inicioMes: +String(r[COL.inicio - 1]).replace(/\D/g, '') || 1, hoy: Utilities.formatDate(new Date(), 'America/Caracas', 'yyyy-MM-dd') };
   var pkg = NT.buildPackage(movs, cat.nombres, tasas.tasas, meta);
   pkg.metodo = String(r[COL.metodo - 1] || 'cierre').toLowerCase().indexOf('prom') === 0 ? 'p' : (String(r[COL.metodo - 1]).toLowerCase().indexOf('dia') === 0 ? 'd' : 'c');
-  guardarJson_(folder, CFG.DATA_NAME, datos);
   guardarJson_(folder, CFG.PKG_NAME, pkg);
+
+  // Publicar en GitHub solo si cambió algo (datos, tasas, código o método)
+  var pub = '';
+  var huella = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
+    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1]));
+  if (datos.pubHash !== huella) {
+    try { publicarTablero_(String(r[COL.clave - 1]), r[COL.rif - 1], r[COL.codigo - 1], pkg); datos.pubHash = huella; pub = ' · publicado'; }
+    catch (e) { pub = ' · NO PUBLICADO: ' + e.message; }
+  } else pub = ' · sin cambios';
+  guardarJson_(folder, CFG.DATA_NAME, datos);
 
   var faltan = pkg.alerts.filter(function (a) { return a.s === 1; }).length;
   var estado = (desc.length ? 'REVISAR: no cuadra con Galac en ' + desc.join(', ') : 'OK · cuadra con Galac') +
-    ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat ? '' : ' · falta el Catálogo de Cuentas');
+    ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat ? '' : ' · falta el Catálogo de Cuentas') + pub;
   return { ultimo: pkg.months[pkg.lastMi], estado: estado };
 }
 function mesesEntre_(d, h) { var y = +d.slice(0, 4), m = +d.slice(5, 7), out = []; while ((y + '-' + (m < 10 ? '0' : '') + m) <= h.slice(0, 7)) { out.push(y + '-' + (m < 10 ? '0' : '') + m); m++; if (m === 13) { y++; m = 1; } } return out; }
@@ -185,31 +194,4 @@ function escribirTasas_(tasas) {
   sh.setColumnWidth(1, 220); sh.setColumnWidth(2, 520);
 }
 
-/* ===================== TABLERO WEB ===================== */
-function doGet(e) {
-  var c = (e && e.parameter && e.parameter.c) ? String(e.parameter.c).replace(/[^a-z0-9-]/g, '') : '';
-  var t = HtmlService.createTemplateFromFile('Tablero');
-  t.slug = c;
-  return t.evaluate().setTitle('Resultados · NT Consultores & Asociados')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-/** Llamada desde el tablero: valida RIF + código y entrega los datos */
-function obtenerDatos(slug, rif, codigo) {
-  slug = String(slug || '').replace(/[^a-z0-9-]/g, '');
-  var cache = CacheService.getScriptCache(), kf = 'fallos_' + slug, fallos = +(cache.get(kf) || 0);
-  if (fallos >= CFG.MAX_FALLOS) throw new Error('Demasiados intentos. Espera 15 minutos y vuelve a intentar.');
-  var norm = function (x) { return String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); };
-  var sh = hoja_(), rows = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 12).getValues();
-  var r = rows.filter(function (x) { return String(x[COL.clave - 1]) === slug; })[0];
-  if (!r || String(r[COL.activo - 1]).toUpperCase().trim() === 'NO' || norm(r[COL.rif - 1]) !== norm(rif) || norm(r[COL.codigo - 1]) !== norm(codigo)) {
-    cache.put(kf, String(fallos + 1), 900);
-    Utilities.sleep(800);
-    throw new Error('El RIF o el código no coinciden. Revisa que el RIF esté completo (por ejemplo J-12345678-9) y el código sea el que te enviamos.');
-  }
-  cache.remove(kf);
-  var pkg = leerJson_(DriveApp.getFolderById(folderId_(r[COL.carpeta - 1])), CFG.PKG_NAME);
-  if (!pkg) throw new Error('Tu información todavía se está preparando. Intenta de nuevo más tarde.');
-  return JSON.stringify(pkg);
-}
 function include(n) { return HtmlService.createHtmlOutputFromFile(n).getContent(); }
