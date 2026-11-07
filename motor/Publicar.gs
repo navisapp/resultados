@@ -5,7 +5,7 @@
  */
 var PUB = {
   REPO: 'navisapp/resultados',
-  ITER: 60000
+  ITER: 40000
 };
 
 var Cifra = (function () {
@@ -67,11 +67,11 @@ var Cifra = (function () {
   function s8(a) { return a.map(function (b) { return b > 127 ? b - 256 : b; }); }
   function hmac(key, msg) { return u8(Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_256, s8(msg), s8(key))); }
   function pbkdf2(pw, salt, iter, nbytes) {
-    var out = [];
+    var out = [], ALG = Utilities.MacAlgorithm.HMAC_SHA_256, pws = s8(pw);
     for (var b = 1; out.length < nbytes; b++) {
-      var u = hmac(pw, salt.concat([(b >>> 24) & 0xff, (b >>> 16) & 0xff, (b >>> 8) & 0xff, b & 0xff])), t = u.slice(0);
-      for (var i = 1; i < iter; i++) { u = hmac(pw, u); for (var j = 0; j < 32; j++) t[j] ^= u[j]; }
-      out = out.concat(t);
+      var u = Utilities.computeHmacSignature(ALG, s8(salt.concat([(b >>> 24) & 0xff, (b >>> 16) & 0xff, (b >>> 8) & 0xff, b & 0xff])), pws), t = u.slice(0);
+      for (var i = 1; i < iter; i++) { u = Utilities.computeHmacSignature(ALG, u, pws); for (var j = 0; j < 32; j++) t[j] ^= u[j]; }
+      out = out.concat(u8(t));
     }
     return out.slice(0, nbytes);
   }

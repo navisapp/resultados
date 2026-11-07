@@ -29,8 +29,8 @@ function actualizarSeleccionado() { var r = SpreadsheetApp.getActiveSheet().getA
 function reprocesarSeleccionado() { var r = SpreadsheetApp.getActiveSheet().getActiveRange().getRow(); if (r > 1) procesar_(r, true); }
 function activarNocturno() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'actualizarTodos') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('actualizarTodos').timeBased().everyDays(1).atHour(2).create();
-  try { SpreadsheetApp.getUi().alert('Listo: se actualizará todos los días a las 2 a. m.'); } catch (e) {}
+  [1, 2, 3, 4].forEach(function (h) { ScriptApp.newTrigger('actualizarTodos').timeBased().everyDays(1).atHour(h).create(); });
+  try { SpreadsheetApp.getUi().alert('Listo: se actualizará cada madrugada (1 a 4 a. m.). Los clientes sin cambios no se vuelven a publicar.'); } catch (e) {}
 }
 
 /* ===================== PROCESO ===================== */
