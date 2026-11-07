@@ -98,7 +98,7 @@ function publicarTablero_(slug, rif, codigo, pkg) {
   var clave = (String(rif) + String(codigo)).toUpperCase().replace(/[^A-Z0-9]/g, '');
   var enc = Cifra.cifrar(JSON.stringify(pkg), clave, PUB.ITER);
   var esc = function (x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
-  var body = HtmlService.createHtmlOutputFromFile('TableroEstatico').getContent()
+  var body = HtmlService.createHtmlOutputFromFile('Tablero').getContent()
     .replace('__TITLE__', 'Resultados ' + esc(pkg.empresa)).replace('__EMPRESA__', esc(pkg.empresa)).replace('__PKG__', enc);
   var html = '<!doctype html>\n<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>body{margin:0}</style></head><body>\n' + body + '\n</body></html>';
   subirGithub_(token, slug + '/index.html', html, 'Actualiza tablero ' + slug);
