@@ -287,7 +287,7 @@ var NT = (function () {
     return {
       empresa: meta.empresa, rif: meta.rif, desde: months[0], hasta: months[11], months: months, lastMi: lastMi,
       generado: meta.hoy, accts: accts, names: names, provs: provs, descs: descs, cols: cols, alerts: alerts,
-      hasRif: hasRif, mr: MR, agg: agg, excl: excl, inv: inventario_(meta.inv, accts, names, months)
+      hasRif: hasRif, mr: MR, agg: agg, excl: excl, inv: inventario_(meta.inv, accts, names, months, cols)
     };
   }
 
@@ -296,7 +296,7 @@ var NT = (function () {
    * cfg: { pct, base:'costo'|'ventas', ii (Bs), iiFecha, compras:[prefijos], otros:[prefijos], real:{'YYYY-MM':Bs}, sim }
    * Si no se indican cuentas, se detectan por nombre dentro del grupo 5.
    */
-  function inventario_(cfg, accts, names, months) {
+  function inventario_(cfg, accts, names, months, cols) {
     if (!cfg || !cfg.lleva) return null;
     function pref(list, a) { return (list || []).some(function (p) { p = String(p).trim(); return p && (a === p || a.indexOf(p + '.') === 0); }); }
     var c = [], o = [], x = [];
@@ -309,8 +309,17 @@ var NT = (function () {
     });
     var real = {};
     Object.keys(cfg.real || {}).forEach(function (k) { var mi = months.indexOf(k); if (mi >= 0 && isFinite(+cfg.real[k])) real[mi] = +cfg.real[k]; });
-    return { pct: +cfg.pct || 0, base: cfg.base === 'ventas' ? 'ventas' : 'costo', ii: +cfg.ii || 0, iiFecha: cfg.iiFecha || months[0] + '-01',
-      c: c, o: o, x: x, real: real, sim: !!cfg.sim };
+    // asientos de inventario registrados en libros (cierre del ejercicio): inicial y final
+    var lib = { ini: 0, fin: {} };
+    if (cols) for (var k = 0; k < cols.a.length; k++) {
+      if (x.indexOf(cols.a[k]) < 0) continue;
+      var nm = String(names[accts[cols.a[k]]] || '');
+      if (/FINAL/i.test(nm)) lib.fin[cols.mi[k]] = Math.round(((lib.fin[cols.mi[k]] || 0) - cols.bs[k]) * 100) / 100;
+      else if (/INICIAL/i.test(nm)) lib.ini = Math.round((lib.ini + cols.bs[k]) * 100) / 100;
+    }
+    var ii = +cfg.ii || 0;
+    return { pct: +cfg.pct || 0, base: cfg.base === 'ventas' ? 'ventas' : 'costo', ii: ii || lib.ini, iiLibro: !ii && lib.ini > 0, iiFecha: cfg.iiFecha || months[0] + '-01',
+      c: c, o: o, x: x, real: real, lib: lib, sim: !!cfg.sim };
   }
 
   return { parseCatalog: parseCatalog, parseLedger: parseLedger, parseRates: parseRates, rateChecks: rateChecks, buildPackage: buildPackage };
