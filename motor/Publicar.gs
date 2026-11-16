@@ -115,6 +115,20 @@ function subirGithub_(token, path, contenido, mensaje) {
   if (r.getResponseCode() >= 300) throw new Error('GitHub respondió ' + r.getResponseCode() + ': ' + r.getContentText().slice(0, 200));
 }
 
+/** Borra un archivo publicado en GitHub (si no existe, no hace nada) */
+function borrarGithub_(path, mensaje) {
+  var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!token) throw new Error('Falta la llave de GitHub (GITHUB_TOKEN).');
+  var url = 'https://api.github.com/repos/' + PUB.REPO + '/contents/' + path;
+  var h = { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  var g = UrlFetchApp.fetch(url, { headers: h, muteHttpExceptions: true });
+  if (g.getResponseCode() === 404) return;
+  if (g.getResponseCode() !== 200) throw new Error('GitHub respondió ' + g.getResponseCode());
+  var payload = { message: mensaje, sha: JSON.parse(g.getContentText()).sha, committer: { name: 'NT Resultados', email: 'infonaviscontable@gmail.com' } };
+  var r = UrlFetchApp.fetch(url, { method: 'delete', headers: h, contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true });
+  if (r.getResponseCode() >= 300) throw new Error('GitHub respondió ' + r.getResponseCode() + ': ' + r.getContentText().slice(0, 200));
+}
+
 /** Prueba de la llave: ejecútala desde el editor después de guardar GITHUB_TOKEN */
 function probarGithub() {
   var token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');

@@ -63,6 +63,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Reprocesar todo desde cero (fila seleccionada)', 'reprocesarSeleccionado')
     .addItem('Activar actualización automática cada noche', 'activarNocturno')
+    .addSeparator()
+    .addItem('Eliminar cliente (fila seleccionada)', 'eliminarSeleccionado')
     .addToUi();
 }
 function actualizarTodos() { procesar_(null, false); }
@@ -72,6 +74,32 @@ function activarNocturno() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'actualizarTodos') ScriptApp.deleteTrigger(t); });
   [1, 2, 3, 4].forEach(function (h) { ScriptApp.newTrigger('actualizarTodos').timeBased().everyDays(1).atHour(h).create(); });
   try { SpreadsheetApp.getUi().alert('Listo: se actualizará cada madrugada (1 a 4 a. m.). Los clientes sin cambios no se vuelven a publicar.'); } catch (e) {}
+}
+
+/** Elimina el cliente de la fila seleccionada: tablero publicado, carpeta (a la papelera) y fila. Pide confirmación. */
+function eliminarSeleccionado() {
+  var ui = SpreadsheetApp.getUi(), sh = SpreadsheetApp.getActiveSheet();
+  if (sh.getSheetId() !== hoja_().getSheetId()) { ui.alert('Ve a la pestaña de clientes y selecciona la fila del cliente.'); return; }
+  var fila = sh.getActiveRange().getRow();
+  if (fila < 2) { ui.alert('Selecciona la fila del cliente que quieres eliminar.'); return; }
+  var r = sh.getRange(fila, 1, 1, NCOL).getValues()[0];
+  var nombre = String(r[COL.cliente - 1]).trim() || '(sin nombre)', clave = String(r[COL.clave - 1]).trim();
+  if (clave && !/^[a-z0-9][a-z0-9-]*$/.test(clave) || clave === 'motor') { ui.alert('La clave "' + clave + '" no es válida; no elimino nada.'); return; }
+  var resp = ui.alert('Eliminar cliente',
+    'Vas a eliminar a ' + nombre + ':\n\n' +
+    (clave ? '• Se borra su tablero (' + CFG.LINK_BASE + clave + '/) y el link deja de funcionar.\n' : '') +
+    '• Su carpeta de Drive va a la papelera (se puede recuperar durante 30 días).\n' +
+    '• Se borra la fila ' + fila + ' de esta hoja.\n\n¿Continuar?', ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+  var errs = [];
+  if (clave) { try { borrarGithub_(clave + '/index.html', 'Elimina tablero ' + clave); } catch (e) { errs.push('tablero: ' + e.message); } }
+  if (String(r[COL.carpeta - 1]).trim()) {
+    try { var fid = folderId_(r[COL.carpeta - 1]); if (fid !== CFG.ROOT_ID && fid !== CFG.TASAS_ID) DriveApp.getFolderById(fid).setTrashed(true); }
+    catch (e) { errs.push('carpeta: ' + e.message); }
+  }
+  if (errs.length) { ui.alert('No se completó (' + errs.join(' | ') + '). La fila NO se borró; avísame.'); return; }
+  sh.deleteRow(fila);
+  ui.alert(nombre + ' fue eliminado.');
 }
 
 /* ===================== PROCESO ===================== */
@@ -171,7 +199,7 @@ function procesarCliente_(r, tasas, desdeCero) {
   ids.forEach(function (id) { if (datos.files[id].descuadres.length) desc = desc.concat(datos.files[id].descuadres); });
 
   var cat = datos.cat || { nombres: {}, empresa: '', rif: '' };
-  var meta = { empresa: cat.empresa || datos.files[ids[0]].empresa || r[COL.cliente - 1], rif: String(r[COL.rif - 1]).replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
+  var meta = { empresa: String(r[COL.cliente - 1]).trim() || cat.empresa || datos.files[ids[0]].empresa, rif: String(r[COL.rif - 1]).replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
     inicioMes: +String(r[COL.inicio - 1]).replace(/\D/g, '') || 1, hoy: Utilities.formatDate(new Date(), 'America/Caracas', 'yyyy-MM-dd'),
     inv: invDeFila_(r) };
   var pkg = NT.buildPackage(movs, cat.nombres, tasas.tasas, meta);
@@ -181,7 +209,7 @@ function procesarCliente_(r, tasas, desdeCero) {
   // Publicar en GitHub solo si cambió algo (datos, tasas, código o método)
   var pub = '';
   var huella = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
-    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names, pkg.inv]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1] + '|plantilla-3'));
+    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names, pkg.inv, pkg.empresa]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1] + '|plantilla-4'));
   if (datos.pubHash !== huella) {
     try { publicarTablero_(String(r[COL.clave - 1]), r[COL.rif - 1], r[COL.codigo - 1], pkg); datos.pubHash = huella; pub = ' · publicado'; }
     catch (e) { pub = ' · NO PUBLICADO: ' + e.message; }

@@ -519,6 +519,7 @@ function rCuentas(){
 }
 
 /* ---------------- INVENTARIO (proyección por margen bruto) ---------------- */
+const SIM=()=>!!(D.inv&&(D.inv.sim||/[?&]simular\b/i.test(location.search)));
 const pctTxt=(p,b)=>{p=+p||0;const alt=b==='costo'?p/(100+p)*100:(p<100?p/(100-p)*100:0);const f=v=>fmtK.format(Math.round(v*10)/10)+'%';return b==='costo'?`${f(p)} sobre el costo (${f(alt)} de margen sobre ventas)`:`${f(p)} de margen sobre ventas (${f(alt)} sobre el costo)`};
 function mRate(m){const r=D.mr[D.months[m]];if(!r)return 0;return S.rm==='c'?r.c:r.p}
 function invCalc(){
@@ -545,7 +546,7 @@ function rInventario(){
   const k=(lab,val,sub)=>`<div class="kpi"><div class="lab">${lab}</div><div class="val num">${val}</div><div class="sub">${sub}</div></div>`;
   const fd=I.iiFecha.split('-').reverse().join('/');
   let h=`<div class="note">Esta empresa lleva <b>inventario periódico</b>: el costo de ventas real solo se conoce con el conteo físico. Mientras tanto lo <b>proyectamos</b> con el método del margen bruto: utilidad bruta de <b>${pctTxt(S.pct,S.base)}</b>. Las compras y los otros costos de la mercancía (fletes, gastos de importación y aduana) suman al inventario; el costo de ventas es lo que sale de él.${S.cur==='usd'?' En USD, cada mes se convierte con su propia tasa (referencial).':''}</div>
-  ${I.sim?`<div class="panel" style="margin-bottom:12px"><div class="invset"><b>Probar otro porcentaje:</b><label>Utilidad bruta <input id="ipct" type="number" min="0" max="500" step="0.5" value="${S.pct}"> %</label><label>sobre <select id="ibase"><option value="costo"${S.base==='costo'?' selected':''}>el costo</option><option value="ventas"${S.base==='ventas'?' selected':''}>las ventas</option></select></label><button id="ireset" type="button">Volver a ${fmtK.format(I.pct)}%</button><span class="muted">El cambio solo se ve aquí; no modifica la contabilidad.</span></div></div>`:''}
+  ${SIM()?`<div class="panel" style="margin-bottom:12px"><div class="invset"><b>Probar otro porcentaje:</b><label>Utilidad bruta <input id="ipct" type="number" min="0" max="500" step="0.5" value="${S.pct}"> %</label><label>sobre <select id="ibase"><option value="costo"${S.base==='costo'?' selected':''}>el costo</option><option value="ventas"${S.base==='ventas'?' selected':''}>las ventas</option></select></label><button id="ireset" type="button">Volver a ${fmtK.format(I.pct)}%</button><span class="muted">El cambio solo se ve aquí; no modifica la contabilidad.</span></div></div>`:''}
   <div class="kpis">
     ${k('Inventario inicial',money(cv(I.ii,0)),'Al '+fd)}
     ${k('Compras + otros costos',money(T.com+T.otr),'Ejercicio a la fecha')}
@@ -561,7 +562,7 @@ function rInventario(){
   </tbody></table></div></div>
   <div class="panel" style="margin-top:12px"><div class="ph"><h2>Inventario final de cada mes</h2><p>Proyectado</p></div><div class="chartbox sm"><canvas id="chInv" role="img" aria-label="Inventario final proyectado por mes"></canvas></div></div>`;
   $('#v-inventario').innerHTML=h;
-  if(I.sim){const up=()=>{S.pct=+$('#ipct').value||0;S.base=$('#ibase').value;const keep=document.activeElement&&document.activeElement.id;rInventario();const nf=invCalc().rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||'';$('#nInv').classList.toggle('crit',nf>0);if(keep){const e=document.getElementById(keep);if(e){e.focus();if(e.type==='number'){const v=e.value;e.value='';e.value=v}}}};
+  if(SIM()){const up=()=>{S.pct=+$('#ipct').value||0;S.base=$('#ibase').value;const keep=document.activeElement&&document.activeElement.id;rInventario();const nf=invCalc().rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||'';$('#nInv').classList.toggle('crit',nf>0);if(keep){const e=document.getElementById(keep);if(e){e.focus();if(e.type==='number'){const v=e.value;e.value='';e.value=v}}}};
     $('#ipct').oninput=up;$('#ibase').onchange=up;$('#ireset').onclick=()=>{S.pct=I.pct;S.base=I.base;rInventario();const nf=invCalc().rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||''}}
   const lab=R.map(r=>mLab(r.m)),data=R.map(r=>cv(r.fin,r.m));
   mkChart('chInv',{type:'line',data:{labels:lab,datasets:[{label:'Inventario final',data,borderColor:css('--s-cos'),backgroundColor:css('--s-cos')+'22',fill:true,tension:.25,pointRadius:3}]},options:baseOpts()});
