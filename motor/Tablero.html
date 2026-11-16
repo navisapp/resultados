@@ -383,6 +383,7 @@ const alertsFor=a=>D.alerts.filter(x=>A[x.a]===a);
 
 /* ---------------- arranque ---------------- */
 function start(){
+  if(D.inv&&D.inv.oculto&&!/[?&]simular\b/i.test(location.search))D.inv=null;
   prep();armIdle();$('#logout').onclick=()=>logout('user');
   $('#lock').hidden=true;$('#app').hidden=false;
   $('#cname').textContent=D.empresa;

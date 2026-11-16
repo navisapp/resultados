@@ -319,7 +319,7 @@ var NT = (function () {
     }
     var ii = +cfg.ii || 0;
     return { pct: +cfg.pct || 0, base: cfg.base === 'ventas' ? 'ventas' : 'costo', ii: ii || lib.ini, iiLibro: !ii && lib.ini > 0, iiFecha: cfg.iiFecha || months[0] + '-01',
-      c: c, o: o, x: x, real: real, lib: lib, sim: !!cfg.sim };
+      c: c, o: o, x: x, real: real, lib: lib, sim: !!cfg.sim, oculto: !!cfg.oculto };
   }
 
   return { parseCatalog: parseCatalog, parseLedger: parseLedger, parseRates: parseRates, rateChecks: rateChecks, buildPackage: buildPackage };

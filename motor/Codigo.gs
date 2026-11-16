@@ -17,7 +17,7 @@ var COL = { clave: 1, cliente: 2, rif: 3, carpeta: 4, tablero: 5, codigo: 6, ini
 var NCOL = 18;
 var INV_HEAD = ['¿Lleva inventario?', 'Inventario inicial (Bs)', 'Fecha inventario inicial', '% utilidad bruta', 'Utilidad sobre', 'Inventario real (opcional)'];
 var INV_NOTA = [
-  'SI si el cliente vende mercancía con inventario periódico. NO o vacío: servicios / sin inventario.',
+  'SI: el cliente vende mercancía con inventario periódico y ve la proyección. PRUEBA: se calcula pero el cliente NO la ve (tú la ves con ?simular al final del link). NO o vacío: servicios / sin inventario.',
   'Monto del inventario al inicio del ejercicio, en bolívares (sale del balance de cierre anterior).',
   'Fecha de ese inventario inicial. Vacío = primer día del ejercicio.',
   'Porcentaje de utilidad bruta para proyectar el costo de ventas. Vacío = 45.',
@@ -25,12 +25,16 @@ var INV_NOTA = [
   'Conteos físicos reales, si los hay. Formato: MM/AAAA = monto; separados por punto y coma. Ej.: 06/2026 = 28.116.287,65'];
 
 function asegurarColumnas_(sh) {
+  var n = Math.max(sh.getMaxRows() - 1, 1);
+  if (sh.getRange(1, COL.inv).getNote().indexOf('PRUEBA') < 0) {
+    sh.getRange(1, COL.inv).setNote(INV_NOTA[0]);
+    sh.getRange(2, COL.inv, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'PRUEBA', 'NO'], true).setAllowInvalid(true).build());
+  }
   if (String(sh.getRange(1, COL.inv).getValue()).trim()) return;
   var h = sh.getRange(1, COL.inv, 1, INV_HEAD.length);
   h.setValues([INV_HEAD]).setNotes([INV_NOTA]);
   sh.getRange(1, 1).copyFormatToRange(sh, COL.inv, COL.invReal, 1, 1);
-  var n = Math.max(sh.getMaxRows() - 1, 1);
-  sh.getRange(2, COL.inv, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'NO'], true).setAllowInvalid(true).build());
+  sh.getRange(2, COL.inv, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'PRUEBA', 'NO'], true).setAllowInvalid(true).build());
   sh.getRange(2, COL.invBase, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['costo', 'ventas'], true).setAllowInvalid(true).build());
   sh.getRange(2, COL.invIni, n, 1).setNumberFormat('#,##0.00');
   sh.getRange(2, COL.invFecha, n, 1).setNumberFormat('dd/mm/yyyy');
@@ -39,7 +43,8 @@ function asegurarColumnas_(sh) {
 
 /** Lee la configuración de inventario de una fila de la hoja */
 function invDeFila_(r) {
-  if (String(r[COL.inv - 1]).toUpperCase().trim().indexOf('S') !== 0) return null;
+  var mod = String(r[COL.inv - 1]).toUpperCase().trim();
+  if (mod.indexOf('S') !== 0 && mod.indexOf('P') !== 0) return null;
   var numVE = function (v) { if (typeof v === 'number') return v; var s = String(v).replace(/[^\d,.\-]/g, ''); if (!s) return 0; return +(s.replace(/\./g, '').replace(',', '.')) || 0; };
   var f = r[COL.invFecha - 1], fecha = '';
   if (f instanceof Date) fecha = Utilities.formatDate(f, 'America/Caracas', 'yyyy-MM-dd');
@@ -52,7 +57,7 @@ function invDeFila_(r) {
   var pct = String(r[COL.invPct - 1]).trim() === '' ? 45 : numVE(r[COL.invPct - 1]);
   if (pct > 0 && pct < 1 && typeof r[COL.invPct - 1] === 'number') pct = pct * 100;  // celda con formato %
   return { lleva: true, ii: numVE(r[COL.invIni - 1]), iiFecha: fecha, pct: pct,
-    base: String(r[COL.invBase - 1]).toLowerCase().indexOf('vent') === 0 ? 'ventas' : 'costo', real: real, sim: false };
+    base: String(r[COL.invBase - 1]).toLowerCase().indexOf('vent') === 0 ? 'ventas' : 'costo', real: real, sim: false, oculto: mod.indexOf('P') === 0 };
 }
 
 /* ===================== MENÚ ===================== */
@@ -219,7 +224,7 @@ function procesarCliente_(r, tasas, desdeCero) {
   var faltan = pkg.alerts.filter(function (a) { return a.s === 1; }).length;
   var estado = (desc.length ? 'REVISAR: no cuadra con Galac en ' + desc.join(', ') : 'OK · cuadra con Galac') +
     ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat ? '' : ' · falta el Catálogo de Cuentas') +
-    (pkg.inv ? ' · inventario ' + pkg.inv.pct + '% s/' + pkg.inv.base + (pkg.inv.ii ? '' : ' (FALTA inventario inicial)') + (pkg.inv.c.length ? '' : ' (no encontré cuentas de compras)') : '') + pub;
+    (pkg.inv ? ' · inventario ' + (pkg.inv.oculto ? 'EN PRUEBA (el cliente no lo ve) ' : '') + pkg.inv.pct + '% s/' + pkg.inv.base + (pkg.inv.ii ? '' : ' (FALTA inventario inicial)') + (pkg.inv.c.length ? '' : ' (no encontré cuentas de compras)') : '') + pub;
   return { ultimo: pkg.months[pkg.lastMi], estado: estado };
 }
 function mesesEntre_(d, h) { var y = +d.slice(0, 4), m = +d.slice(5, 7), out = []; while ((y + '-' + (m < 10 ? '0' : '') + m) <= h.slice(0, 7)) { out.push(y + '-' + (m < 10 ? '0' : '') + m); m++; if (m === 13) { y++; m = 1; } } return out; }
