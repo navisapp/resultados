@@ -148,6 +148,9 @@ section.view{display:grid;gap:18px}
 .alist{display:grid;gap:8px}
 .acard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;text-align:left;width:100%}
 .acard:hover{border-color:var(--line)}
+.invtab td,.invtab th{white-space:nowrap}.invtab tr.falta td{background:var(--crit-bg)}.invtab tr.tot td{font-weight:700;border-top:2px solid var(--line)}
+.invset{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;font-size:13px}.invset select,.invset button{padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink);cursor:pointer}.invset input{width:84px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--warn-bg);color:var(--warn);margin-left:6px;vertical-align:middle}
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;letter-spacing:.02em}
 .pill.s1{background:var(--crit-bg);color:var(--crit)} .pill.s2{background:var(--warn-bg);color:var(--warn)} .pill.s3{background:var(--info-bg);color:var(--info)}
 .acard .t{font-weight:600}
@@ -276,12 +279,14 @@ footer .rtab{max-width:420px;margin-top:6px}footer{border-top:1px solid var(--li
     <nav class="tabs" role="tablist">
       <button role="tab" data-v="resumen" aria-selected="true">Resumen</button>
       <button role="tab" data-v="cuentas" aria-selected="false">Cuentas</button>
+      <button role="tab" data-v="inventario" aria-selected="false" id="tInv" hidden>Inventario<span class="count" id="nInv"></span></button>
       <button role="tab" data-v="alertas" aria-selected="false">Alertas<span class="count" id="nAl"></span></button>
       <button role="tab" data-v="riesgo" aria-selected="false">Revisión fiscal<span class="count" id="nRf"></span></button>
     </nav>
     <main>
       <section class="view" id="v-resumen"></section>
       <section class="view" id="v-cuentas" hidden></section>
+      <section class="view" id="v-inventario" hidden></section>
       <section class="view" id="v-alertas" hidden></section>
       <section class="view" id="v-riesgo" hidden></section>
     </main>
@@ -337,7 +342,7 @@ function armIdle(){clearTimeout(idleT);idleT=setTimeout(()=>logout('idle'),IDLE)
 document.addEventListener('visibilitychange',()=>{if(D&&document.visibilityState==='visible'&&idleT===null)armIdle()});
 
 /* ---------------- estado ---------------- */
-const S={cur:'bs',rm:'c',m:-1,view:'resumen',drawer:null,alF:0,rfF:0};
+const S={cur:'bs',rm:'c',m:-1,view:'resumen',drawer:null,alF:0,rfF:0,pct:null,base:null};
 const MES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const MESL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const mLab=(i,long)=>{const s=D.months[i];const m=+s.slice(5)-1;return (long?MESL[m]:MES[m])+' '+(long?s.slice(0,4):s.slice(2,4))};
@@ -391,18 +396,20 @@ function start(){
   const crit=D.alerts.filter(x=>x.s===1).length;
   $('#nAl').textContent=D.alerts.length;$('#nAl').classList.toggle('crit',crit>0);
   const rf=D.cols.fl.reduce((s,f)=>s+(f?1:0),0);$('#nRf').textContent=rf;
+  if(D.inv){S.pct=D.inv.pct;S.base=D.inv.base;$('#tInv').hidden=false;const nf=invCalc().rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||'';$('#nInv').classList.toggle('crit',nf>0)}
   $('#foot').innerHTML=footer();
-  const h=(location.hash||'').slice(1);if(['resumen','cuentas','alertas','riesgo'].includes(h))S.view=h;
+  const h=(location.hash||'').slice(1);if(VIEWS().includes(h))S.view=h;
   render();
 }
 function fmtRif(r){const m=/^([A-Z])(\d+)(\d)$/.exec(r);return m?`${m[1]}-${m[2]}-${m[3]}`:r}
 function setCur(c){S.cur=c;$('#cbs').setAttribute('aria-pressed',c==='bs');$('#cusd').setAttribute('aria-pressed',c==='usd');render();if(S.drawer)renderDrawer()}
 function go(v){S.view=v;try{history.replaceState(null,'','#'+v)}catch(_){location.hash=v}render()}
 window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(h&&h!==S.view&&document.getElementById('v-'+h)){S.view=h;render()}});
+const VIEWS=()=>D&&D.inv?['resumen','cuentas','inventario','alertas','riesgo']:['resumen','cuentas','alertas','riesgo'];
 function render(){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===S.view));
-  ['resumen','cuentas','alertas','riesgo'].forEach(v=>$('#v-'+v).hidden=v!==S.view);
-  ({resumen:rResumen,cuentas:rCuentas,alertas:rAlertas,riesgo:rRiesgo})[S.view]();
+  VIEWS().forEach(v=>$('#v-'+v).hidden=v!==S.view);
+  ({resumen:rResumen,cuentas:rCuentas,inventario:rInventario,alertas:rAlertas,riesgo:rRiesgo})[S.view]();
 }
 function footer(){
   const mk=Object.keys(D.mr);const lastM=mk[mk.length-1];
@@ -422,7 +429,8 @@ function baseOpts(){const ink=css('--ink-2'),grid=css('--line-2');return {respon
 /* ---------------- RESUMEN ---------------- */
 function rResumen(){
   const m=S.m;
-  const ing=sumNode('4',m).t, cos=sumNode('5',m).t, gas=sumNode('6',m).t;
+  const ing=sumNode('4',m).t, gas=sumNode('6',m).t, IV=D.inv?invCalc():null;
+  const cos=IV?(m<0?IV.cs.slice(0,D.lastMi+1).reduce((x,y)=>x+y,0):(IV.cs[m]||0)):sumNode('5',m).t;
   let otr=0;for(const a of A)if(a[0]==='7'){const v=m<0?ACC[a][S.cur].reduce((x,y)=>x+y,0):ACC[a][S.cur][m];otr+=isInc(a)?v:-v}
   const res=ing-cos-gas+otr;
   const pct=v=>ing?Math.round(v/ing*1000)/10+'% de los ingresos':'';
@@ -432,7 +440,7 @@ function rResumen(){
   $('#v-resumen').innerHTML=`
   <div class="kpis">
     ${k('','--s-ing','Ingresos netos',ing,per)}
-    ${k('','--s-cos','Costos',cos,pct(cos))}
+    ${IV?k('','--s-cos','Costo de ventas',cos,'Proyectado · '+pct(cos)):k('','--s-cos','Costos',cos,pct(cos))}
     ${k('','--s-gas','Gastos',gas,pct(gas))}
     ${k('','--s-otr','Otros ingresos y egresos',otr,otr>=0?'neto a favor':'neto en contra')}
     ${k('result','','Resultado contable',res,ing?Math.round(res/ing*1000)/10+'% de margen':'')}
@@ -440,7 +448,7 @@ function rResumen(){
   ${alertBanner()}
   <div class="grid2">
     <div class="panel"><div class="ph"><h2>Mes a mes</h2><p>Haz clic en un mes para filtrar todo el tablero</p></div>
-      <div class="legend"><span><i style="background:var(--s-ing)"></i>Ingresos netos</span><span><i style="background:var(--s-cos)"></i>Costos</span><span><i style="background:var(--s-gas)"></i>Gastos</span></div>
+      <div class="legend"><span><i style="background:var(--s-ing)"></i>Ingresos netos</span><span><i style="background:var(--s-cos)"></i>${IV?'Costo de ventas':'Costos'}</span><span><i style="background:var(--s-gas)"></i>Gastos</span></div>
       <div class="chartbox"><canvas id="chMes" role="img" aria-label="Ingresos, costos y gastos por mes"></canvas></div></div>
     <div class="panel"><div class="ph"><h2>¿En qué se va el dinero?</h2><p>${per}</p></div>
       <div class="donutwrap"><div style="position:relative;width:180px;height:180px;max-width:100%;justify-self:center"><canvas id="chDon" role="img" aria-label="Distribución de costos y gastos por rubro"></canvas></div><div class="dlist" id="dlist"></div></div></div>
@@ -451,16 +459,18 @@ function rResumen(){
   </div>`;
   document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openDrawer(b.dataset.open,{prov:+b.dataset.p}));
   const lab=D.months.map((_,i)=>mLab(i));
-  const sI=seriesNode('4'),sC=seriesNode('5'),sG=seriesNode('6');
+  const sI=seriesNode('4'),sC=IV?IV.cs.slice():seriesNode('5'),sG=seriesNode('6');
   const dim=(c,i)=>S.m<0||S.m===i?c:c+'55';
   const bar=(l,s,c)=>({label:l,data:s,backgroundColor:s.map((_,i)=>dim(c,i)),borderRadius:4,borderSkipped:'bottom',maxBarThickness:22,categoryPercentage:.72,barPercentage:.92});
   const o=baseOpts();o.onClick=(e,el)=>{if(el.length){const i=el[0].index;S.m=S.m===i?-1:i;$('#msel').value=S.m;render()}};
-  mkChart('chMes',{type:'bar',data:{labels:lab,datasets:[bar('Ingresos netos',sI,css('--s-ing')),bar('Costos',sC,css('--s-cos')),bar('Gastos',sG,css('--s-gas'))]},options:o});
+  mkChart('chMes',{type:'bar',data:{labels:lab,datasets:[bar('Ingresos netos',sI,css('--s-ing')),bar(IV?'Costo de ventas':'Costos',sC,css('--s-cos')),bar('Gastos',sG,css('--s-gas'))]},options:o});
   const sR=sI.map((v,i)=>i>D.lastMi?null:v-sC[i]-sG[i]);
   const o2=baseOpts();o2.scales.y.grid.color=c=>c.tick.value===0?css('--ink-3'):css('--line-2');
   mkChart('chRes',{type:'bar',data:{labels:lab,datasets:[{label:'Resultado',data:sR,backgroundColor:sR.map((v,i)=>dim(v>=0?css('--good'):css('--crit'),i)),borderRadius:4,maxBarThickness:22}]},options:o2});
   // dona por rubro nivel 3 (5.x.xx y 6.x.xx)
-  const rub={};for(const a of A){if(a[0]!=='5'&&a[0]!=='6')continue;const r=a.split('.').slice(0,3).join('.');const v=m<0?ACC[a][S.cur].reduce((x,y)=>x+y,0):ACC[a][S.cur][m];rub[r]=(rub[r]||0)+v}
+  const rub={},skipI=IV?new Set([...D.inv.c,...D.inv.o,...D.inv.x].map(i=>A[i])):new Set();
+  if(IV)rub.__cmv=m<0?IV.cm.slice(0,D.lastMi+1).reduce((x,y)=>x+y,0):(IV.cm[m]||0);
+  for(const a of A){if(a[0]!=='5'&&a[0]!=='6')continue;if(skipI.has(a))continue;const r=a.split('.').slice(0,3).join('.');const v=m<0?ACC[a][S.cur].reduce((x,y)=>x+y,0):ACC[a][S.cur][m];rub[r]=(rub[r]||0)+v}
   let arr=Object.entries(rub).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
   if(arr.length>6){const rest=arr.slice(5).reduce((s,x)=>s+x[1],0);arr=arr.slice(0,5).concat([['__otros',rest]])}
   const pal=['--s-ing','--s-cos','--s-gas','--s-otr','#e87ba4','--ink-3'].map(v=>v.startsWith('--')?css(v):v);
@@ -469,7 +479,7 @@ function rResumen(){
   mkChart('chDon',{type:'doughnut',data:{labels:arr.map(x=>rname(x[0])),datasets:[{data:arr.map(x=>x[1]),backgroundColor:pal,borderColor:css('--surface'),borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'62%',animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+money(c.parsed)+' · '+Math.round(c.parsed/tot*100)+'%'}}}}});
 }
-function rname(code){if(code==='__otros')return 'Otros rubros';return cap(D.names[code]||code)}
+function rname(code){if(code==='__otros')return 'Otros rubros';if(code==='__cmv')return 'Costo de la mercancía vendida';return cap(D.names[code]||code)}
 function cap(s){s=String(s).toLowerCase();return s.charAt(0).toUpperCase()+s.slice(1)}
 function topProv(m){
   const c=D.cols,t={};for(let i=0;i<N;i++){const a=A[c.a[i]];if(a[0]!=='5'&&a[0]!=='6')continue;if(m>=0&&c.mi[i]!==m)continue;if(P[c.p[i]][2]==='A')continue;const k=c.p[i];if(!t[k])t[k]={v:0,a:{}};t[k].v+=amt(i);t[k].a[a]=(t[k].a[a]||0)+amt(i)}
@@ -478,6 +488,9 @@ function topProv(m){
   return arr.map(([p,o])=>{const ma=Object.entries(o.a).sort((x,y)=>y[1]-x[1])[0][0];return `<button data-open="${ma}" data-p="${p}"><div style="min-width:0"><span class="nm">${esc(P[p][0])}</span><span class="acct">${esc(cap(D.names[ma]))}</span><div class="bar" style="width:${Math.max(2,o.v/mx*100)}%"></div></div><b class="num">${short(o.v)}</b></button>`}).join('');
 }
 function alertBanner(){
+  let inv='';if(D.inv){const f=invCalc().rows.filter(r=>r.falta>0);if(f.length)inv=`<button class="acard" onclick="document.querySelector('[data-v=inventario]').click()" style="grid-template-columns:auto minmax(0,1fr) auto;margin-bottom:10px"><span class="pill s1">Inventario</span><div><div class="t">En ${f.length} mes(es) se vendió más mercancía de la disponible</div><div class="d">Puede haber compras sin registrar o un inventario inicial bajo. ${f.map(r=>mLab(r.m,true)).join(', ')}.</div></div><span class="muted">Ver inventario →</span></button>`}
+  return inv+alertBanner0()}
+function alertBanner0(){
   const c=[1,2,3].map(s=>D.alerts.filter(x=>x.s===s).length);if(!D.alerts.length)return '';
   return `<button class="acard" onclick="document.querySelector('[data-v=alertas]').click()" style="grid-template-columns:auto minmax(0,1fr) auto"><span class="pill s1">${c[0]} por revisar</span><div><div class="t">Encontramos ${D.alerts.length} señales que conviene revisar</div><div class="d">${c[0]} gastos recurrentes que faltan en algún mes, ${c[1]} meses atípicos y ${c[2]} cuentas con meses en cero. Si falta alguna factura, envíanosla.</div></div><span class="muted">Ver alertas →</span></button>`;
 }
@@ -503,6 +516,55 @@ function rCuentas(){
   h+='</div></div>';
   $('#v-cuentas').innerHTML=h;
   document.querySelectorAll('.trow').forEach(b=>b.onclick=()=>{const c=b.dataset.c;if(NODES[c].leaf)openDrawer(c);else{openN.has(c)?openN.delete(c):openN.add(c);rCuentas()}});
+}
+
+/* ---------------- INVENTARIO (proyección por margen bruto) ---------------- */
+const pctTxt=(p,b)=>{p=+p||0;const alt=b==='costo'?p/(100+p)*100:(p<100?p/(100-p)*100:0);const f=v=>fmtK.format(Math.round(v*10)/10)+'%';return b==='costo'?`${f(p)} sobre el costo (${f(alt)} de margen sobre ventas)`:`${f(p)} de margen sobre ventas (${f(alt)} sobre el costo)`};
+function mRate(m){const r=D.mr[D.months[m]];if(!r)return 0;return S.rm==='c'?r.c:r.p}
+function invCalc(){
+  const I=D.inv,n=D.months.length,inSet=new Set([...I.c,...I.o,...I.x]);
+  const sumBs=(idx,m)=>idx.reduce((s,i)=>s+ACC[A[i]].bs[m],0);
+  const rows=[],cs=new Array(n).fill(0),cm=new Array(n).fill(0);let ini=I.ii;
+  for(let m=0;m<=D.lastMi;m++){
+    let ven=0;for(const a of A)if(a[0]==='4')ven+=ACC[a].bs[m];
+    const com=sumBs(I.c,m),otr=sumBs(I.o,m),disp=ini+com+otr;
+    const p=+S.pct||0,teo=S.base==='costo'?ven/(1+p/100):ven*(1-p/100);
+    let fin,falta=0;const real=I.real[m]!=null;
+    if(real)fin=I.real[m];else{fin=disp-teo;if(fin<0){falta=-fin;fin=0}}
+    const costo=disp-fin;let rest=0;for(let i=0;i<A.length;i++)if(A[i][0]==='5'&&!inSet.has(i))rest+=ACC[A[i]].bs[m];
+    const r=mRate(m),cv=v=>S.cur==='bs'?v:(r?v/r:0);
+    rows.push({m,ini,com,otr,disp,ven,costo,fin,falta,real,rest});
+    cm[m]=cv(costo);cs[m]=cv(costo+rest);ini=fin;
+  }
+  return {rows,cs,cm};
+}
+function rInventario(){
+  const I=D.inv,R=invCalc().rows,cv=(v,m)=>{if(S.cur==='bs')return v;const r=mRate(m);return r?v/r:0};
+  const T=R.reduce((t,r)=>({com:t.com+cv(r.com,r.m),otr:t.otr+cv(r.otr,r.m),ven:t.ven+cv(r.ven,r.m),costo:t.costo+cv(r.costo,r.m)}),{com:0,otr:0,ven:0,costo:0});
+  const last=R[R.length-1],faltas=R.filter(r=>r.falta>0),mb=T.ven?(1-T.costo/T.ven)*100:0;
+  const k=(lab,val,sub)=>`<div class="kpi"><div class="lab">${lab}</div><div class="val num">${val}</div><div class="sub">${sub}</div></div>`;
+  const fd=I.iiFecha.split('-').reverse().join('/');
+  let h=`<div class="note">Esta empresa lleva <b>inventario periódico</b>: el costo de ventas real solo se conoce con el conteo físico. Mientras tanto lo <b>proyectamos</b> con el método del margen bruto: utilidad bruta de <b>${pctTxt(S.pct,S.base)}</b>. Las compras y los otros costos de la mercancía (fletes, gastos de importación y aduana) suman al inventario; el costo de ventas es lo que sale de él.${S.cur==='usd'?' En USD, cada mes se convierte con su propia tasa (referencial).':''}</div>
+  ${I.sim?`<div class="panel" style="margin-bottom:12px"><div class="invset"><b>Probar otro porcentaje:</b><label>Utilidad bruta <input id="ipct" type="number" min="0" max="500" step="0.5" value="${S.pct}"> %</label><label>sobre <select id="ibase"><option value="costo"${S.base==='costo'?' selected':''}>el costo</option><option value="ventas"${S.base==='ventas'?' selected':''}>las ventas</option></select></label><button id="ireset" type="button">Volver a ${fmtK.format(I.pct)}%</button><span class="muted">El cambio solo se ve aquí; no modifica la contabilidad.</span></div></div>`:''}
+  <div class="kpis">
+    ${k('Inventario inicial',money(cv(I.ii,0)),'Al '+fd)}
+    ${k('Compras + otros costos',money(T.com+T.otr),'Ejercicio a la fecha')}
+    ${k('Costo de ventas',money(T.costo),'Proyectado')}
+    ${k('Margen bruto',fmtK.format(Math.round(mb*10)/10)+'%','Sobre las ventas del período')}
+    <div class="kpi result"><div class="lab">Inventario final proyectado</div><div class="val num">${money(cv(last.fin,last.m))}</div><div class="sub">${mLab(last.m,true)}${last.real?' · conteo real':''}</div></div>
+  </div>
+  ${faltas.length?`<div class="acard" style="grid-template-columns:auto minmax(0,1fr);margin-top:12px"><span class="pill s1">Revisar</span><div><div class="t">Ventas mayores a la mercancía disponible en ${faltas.length} mes(es)</div><div class="d">Con este porcentaje, en ${faltas.map(r=>mLab(r.m,true)).join(', ')} se vendió más de lo que había en inventario. Puede haber compras o importaciones sin registrar, un inventario inicial más alto o un margen real distinto. El inventario final se dejó en cero.</div></div></div>`:''}
+  <div class="panel" style="margin-top:12px"><div class="ph"><h2>Movimiento del inventario mes a mes</h2><p>Inventario inicial + compras + otros costos − costo de ventas = inventario final</p></div>
+  <div class="tscroll"><table class="invtab"><thead><tr><th>Mes</th><th class="r">Inv. inicial</th><th class="r">Compras</th><th class="r">Otros costos</th><th class="r">Disponible</th><th class="r">Ventas</th><th class="r">Costo de ventas</th><th class="r">Inv. final</th><th class="r">Margen</th></tr></thead><tbody>
+  ${R.map(r=>{const mg=r.ven?(1-r.costo/r.ven)*100:0;return `<tr class="${r.falta>0?'falta':''}"><td>${mLab(r.m,true)}${r.real?'<span class="tag" style="background:var(--info-bg);color:var(--info)">real</span>':''}${r.falta>0?'<span class="tag" style="background:var(--crit-bg);color:var(--crit)">falta</span>':''}</td><td class="r num">${money(cv(r.ini,r.m))}</td><td class="r num">${money(cv(r.com,r.m))}</td><td class="r num">${money(cv(r.otr,r.m))}</td><td class="r num">${money(cv(r.disp,r.m))}</td><td class="r num">${money(cv(r.ven,r.m))}</td><td class="r num" style="font-weight:600">${money(cv(r.costo,r.m))}</td><td class="r num">${money(cv(r.fin,r.m))}</td><td class="r num">${r.ven?fmtK.format(Math.round(mg*10)/10)+'%':'—'}</td></tr>`}).join('')}
+  <tr class="tot"><td>Total</td><td class="r num">${money(cv(I.ii,0))}</td><td class="r num">${money(T.com)}</td><td class="r num">${money(T.otr)}</td><td></td><td class="r num">${money(T.ven)}</td><td class="r num">${money(T.costo)}</td><td class="r num">${money(cv(last.fin,last.m))}</td><td class="r num">${fmtK.format(Math.round(mb*10)/10)}%</td></tr>
+  </tbody></table></div></div>
+  <div class="panel" style="margin-top:12px"><div class="ph"><h2>Inventario final de cada mes</h2><p>Proyectado</p></div><div class="chartbox sm"><canvas id="chInv" role="img" aria-label="Inventario final proyectado por mes"></canvas></div></div>`;
+  $('#v-inventario').innerHTML=h;
+  if(I.sim){const up=()=>{S.pct=+$('#ipct').value||0;S.base=$('#ibase').value;const keep=document.activeElement&&document.activeElement.id;rInventario();const nf=invCalc().rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||'';$('#nInv').classList.toggle('crit',nf>0);if(keep){const e=document.getElementById(keep);if(e){e.focus();if(e.type==='number'){const v=e.value;e.value='';e.value=v}}}};
+    $('#ipct').oninput=up;$('#ibase').onchange=up;$('#ireset').onclick=()=>{S.pct=I.pct;S.base=I.base;rInventario();const nf=invCalc().rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||''}}
+  const lab=R.map(r=>mLab(r.m)),data=R.map(r=>cv(r.fin,r.m));
+  mkChart('chInv',{type:'line',data:{labels:lab,datasets:[{label:'Inventario final',data,borderColor:css('--s-cos'),backgroundColor:css('--s-cos')+'22',fill:true,tension:.25,pointRadius:3}]},options:baseOpts()});
 }
 
 /* ---------------- ALERTAS ---------------- */

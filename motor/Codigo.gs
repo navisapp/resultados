@@ -12,7 +12,48 @@ var CFG = {
   MAX_MS: 270000,          // 4,5 minutos por ejecución
   MAX_FALLOS: 8            // intentos fallidos de clave antes de bloquear 15 minutos
 };
-var COL = { clave: 1, cliente: 2, rif: 3, carpeta: 4, tablero: 5, codigo: 6, inicio: 7, metodo: 8, activo: 9, ultimo: 10, estado: 11, actualizado: 12 };
+var COL = { clave: 1, cliente: 2, rif: 3, carpeta: 4, tablero: 5, codigo: 6, inicio: 7, metodo: 8, activo: 9, ultimo: 10, estado: 11, actualizado: 12,
+  inv: 13, invIni: 14, invFecha: 15, invPct: 16, invBase: 17, invReal: 18 };
+var NCOL = 18;
+var INV_HEAD = ['¿Lleva inventario?', 'Inventario inicial (Bs)', 'Fecha inventario inicial', '% utilidad bruta', 'Utilidad sobre', 'Inventario real (opcional)'];
+var INV_NOTA = [
+  'SI si el cliente vende mercancía con inventario periódico. NO o vacío: servicios / sin inventario.',
+  'Monto del inventario al inicio del ejercicio, en bolívares (sale del balance de cierre anterior).',
+  'Fecha de ese inventario inicial. Vacío = primer día del ejercicio.',
+  'Porcentaje de utilidad bruta para proyectar el costo de ventas. Vacío = 45.',
+  'costo = el % se aplica sobre el costo (ej. 45% sobre lo que cuesta). ventas = el % es el margen sobre las ventas.',
+  'Conteos físicos reales, si los hay. Formato: MM/AAAA = monto; separados por punto y coma. Ej.: 06/2026 = 28.116.287,65'];
+
+function asegurarColumnas_(sh) {
+  if (String(sh.getRange(1, COL.inv).getValue()).trim()) return;
+  var h = sh.getRange(1, COL.inv, 1, INV_HEAD.length);
+  h.setValues([INV_HEAD]).setNotes([INV_NOTA]);
+  sh.getRange(1, 1).copyFormatToRange(sh, COL.inv, COL.invReal, 1, 1);
+  var n = Math.max(sh.getMaxRows() - 1, 1);
+  sh.getRange(2, COL.inv, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'NO'], true).setAllowInvalid(true).build());
+  sh.getRange(2, COL.invBase, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['costo', 'ventas'], true).setAllowInvalid(true).build());
+  sh.getRange(2, COL.invIni, n, 1).setNumberFormat('#,##0.00');
+  sh.getRange(2, COL.invFecha, n, 1).setNumberFormat('dd/mm/yyyy');
+  sh.setColumnWidths(COL.inv, INV_HEAD.length, 150);
+}
+
+/** Lee la configuración de inventario de una fila de la hoja */
+function invDeFila_(r) {
+  if (String(r[COL.inv - 1]).toUpperCase().trim().indexOf('S') !== 0) return null;
+  var numVE = function (v) { if (typeof v === 'number') return v; var s = String(v).replace(/[^\d,.\-]/g, ''); if (!s) return 0; return +(s.replace(/\./g, '').replace(',', '.')) || 0; };
+  var f = r[COL.invFecha - 1], fecha = '';
+  if (f instanceof Date) fecha = Utilities.formatDate(f, 'America/Caracas', 'yyyy-MM-dd');
+  else { var m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(f)); if (m) fecha = m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2); }
+  var real = {};
+  String(r[COL.invReal - 1] || '').split(';').forEach(function (p) {
+    var m = /(\d{1,2})\s*[\/\-]\s*(\d{4})\s*[=:]\s*(.+)/.exec(p.trim());
+    if (m) real[m[2] + '-' + ('0' + m[1]).slice(-2)] = numVE(m[3]);
+  });
+  var pct = String(r[COL.invPct - 1]).trim() === '' ? 45 : numVE(r[COL.invPct - 1]);
+  if (pct > 0 && pct < 1 && typeof r[COL.invPct - 1] === 'number') pct = pct * 100;  // celda con formato %
+  return { lleva: true, ii: numVE(r[COL.invIni - 1]), iiFecha: fecha, pct: pct,
+    base: String(r[COL.invBase - 1]).toLowerCase().indexOf('vent') === 0 ? 'ventas' : 'costo', real: real, sim: false };
+}
 
 /* ===================== MENÚ ===================== */
 function onOpen() {
@@ -40,7 +81,8 @@ function procesar_(soloFila, desdeCero) {
   var t0 = Date.now(), sh = hoja_(), last = sh.getLastRow();
   if (last < 2) return;
   var tasas = cargarTasas_();
-  var rows = sh.getRange(2, 1, last - 1, 12).getValues();
+  asegurarColumnas_(sh);
+  var rows = sh.getRange(2, 1, last - 1, NCOL).getValues();
   for (var i = 0; i < rows.length; i++) {
     var fila = i + 2;
     if (soloFila && fila !== soloFila) continue;
@@ -50,7 +92,7 @@ function procesar_(soloFila, desdeCero) {
     if (String(r[COL.activo - 1]).toUpperCase().trim() === 'NO') continue;
     try {
       completarFila_(sh, fila, r);
-      r = sh.getRange(fila, 1, 1, 12).getValues()[0];
+      r = sh.getRange(fila, 1, 1, NCOL).getValues()[0];
       var res = procesarCliente_(r, tasas, desdeCero);
       sh.getRange(fila, COL.ultimo, 1, 3).setValues([[res.ultimo, res.estado, new Date()]]);
     } catch (e) {
@@ -130,7 +172,8 @@ function procesarCliente_(r, tasas, desdeCero) {
 
   var cat = datos.cat || { nombres: {}, empresa: '', rif: '' };
   var meta = { empresa: cat.empresa || datos.files[ids[0]].empresa || r[COL.cliente - 1], rif: String(r[COL.rif - 1]).replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
-    inicioMes: +String(r[COL.inicio - 1]).replace(/\D/g, '') || 1, hoy: Utilities.formatDate(new Date(), 'America/Caracas', 'yyyy-MM-dd') };
+    inicioMes: +String(r[COL.inicio - 1]).replace(/\D/g, '') || 1, hoy: Utilities.formatDate(new Date(), 'America/Caracas', 'yyyy-MM-dd'),
+    inv: invDeFila_(r) };
   var pkg = NT.buildPackage(movs, cat.nombres, tasas.tasas, meta);
   pkg.metodo = String(r[COL.metodo - 1] || 'cierre').toLowerCase().indexOf('prom') === 0 ? 'p' : (String(r[COL.metodo - 1]).toLowerCase().indexOf('dia') === 0 ? 'd' : 'c');
   guardarJson_(folder, CFG.PKG_NAME, pkg);
@@ -138,7 +181,7 @@ function procesarCliente_(r, tasas, desdeCero) {
   // Publicar en GitHub solo si cambió algo (datos, tasas, código o método)
   var pub = '';
   var huella = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
-    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1] + '|plantilla-2'));
+    JSON.stringify([pkg.cols, pkg.mr, pkg.alerts, pkg.metodo, pkg.names, pkg.inv]) + '|' + r[COL.codigo - 1] + '|' + r[COL.rif - 1] + '|plantilla-3'));
   if (datos.pubHash !== huella) {
     try { publicarTablero_(String(r[COL.clave - 1]), r[COL.rif - 1], r[COL.codigo - 1], pkg); datos.pubHash = huella; pub = ' · publicado'; }
     catch (e) { pub = ' · NO PUBLICADO: ' + e.message; }
@@ -147,7 +190,8 @@ function procesarCliente_(r, tasas, desdeCero) {
 
   var faltan = pkg.alerts.filter(function (a) { return a.s === 1; }).length;
   var estado = (desc.length ? 'REVISAR: no cuadra con Galac en ' + desc.join(', ') : 'OK · cuadra con Galac') +
-    ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat ? '' : ' · falta el Catálogo de Cuentas') + pub;
+    ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat ? '' : ' · falta el Catálogo de Cuentas') +
+    (pkg.inv ? ' · inventario ' + pkg.inv.pct + '% s/' + pkg.inv.base + (pkg.inv.ii ? '' : ' (FALTA inventario inicial)') + (pkg.inv.c.length ? '' : ' (no encontré cuentas de compras)') : '') + pub;
   return { ultimo: pkg.months[pkg.lastMi], estado: estado };
 }
 function mesesEntre_(d, h) { var y = +d.slice(0, 4), m = +d.slice(5, 7), out = []; while ((y + '-' + (m < 10 ? '0' : '') + m) <= h.slice(0, 7)) { out.push(y + '-' + (m < 10 ? '0' : '') + m); m++; if (m === 13) { y++; m = 1; } } return out; }

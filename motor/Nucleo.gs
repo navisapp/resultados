@@ -287,8 +287,30 @@ var NT = (function () {
     return {
       empresa: meta.empresa, rif: meta.rif, desde: months[0], hasta: months[11], months: months, lastMi: lastMi,
       generado: meta.hoy, accts: accts, names: names, provs: provs, descs: descs, cols: cols, alerts: alerts,
-      hasRif: hasRif, mr: MR, agg: agg, excl: excl
+      hasRif: hasRif, mr: MR, agg: agg, excl: excl, inv: inventario_(meta.inv, accts, names, months)
     };
+  }
+
+  /**
+   * Inventario periódico proyectado (método del margen bruto).
+   * cfg: { pct, base:'costo'|'ventas', ii (Bs), iiFecha, compras:[prefijos], otros:[prefijos], real:{'YYYY-MM':Bs}, sim }
+   * Si no se indican cuentas, se detectan por nombre dentro del grupo 5.
+   */
+  function inventario_(cfg, accts, names, months) {
+    if (!cfg || !cfg.lleva) return null;
+    function pref(list, a) { return (list || []).some(function (p) { p = String(p).trim(); return p && (a === p || a.indexOf(p + '.') === 0); }); }
+    var c = [], o = [], x = [];
+    accts.forEach(function (a, i) {
+      if (a.charAt(0) !== '5') return;
+      var n = String(names[a] || '');
+      if (/INVENTARIO/i.test(n)) x.push(i);
+      else if (cfg.compras && cfg.compras.length ? pref(cfg.compras, a) : /COMPRA/i.test(n)) c.push(i);
+      else if (cfg.otros && cfg.otros.length ? pref(cfg.otros, a) : /OTROS COSTOS DE LA MERC|FLETE|ADUAN|IMPORTACI|NACIONALIZ|ARANCEL|ACARREO/i.test(n)) o.push(i);
+    });
+    var real = {};
+    Object.keys(cfg.real || {}).forEach(function (k) { var mi = months.indexOf(k); if (mi >= 0 && isFinite(+cfg.real[k])) real[mi] = +cfg.real[k]; });
+    return { pct: +cfg.pct || 0, base: cfg.base === 'ventas' ? 'ventas' : 'costo', ii: +cfg.ii || 0, iiFecha: cfg.iiFecha || months[0] + '-01',
+      c: c, o: o, x: x, real: real, sim: !!cfg.sim };
   }
 
   return { parseCatalog: parseCatalog, parseLedger: parseLedger, parseRates: parseRates, rateChecks: rateChecks, buildPackage: buildPackage };
