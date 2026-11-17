@@ -80,7 +80,10 @@ select.sel option{color:#122033;background:#fff}
 .client .meta{color:var(--ink-2);display:flex;gap:6px 16px;flex-wrap:wrap;font-size:13px;margin-top:4px}
 .client .meta b{color:var(--ink);font-weight:600}
 
-nav.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:14px;overflow-x:auto}
+nav.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:14px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}nav.tabs::-webkit-scrollbar{display:none}nav.tabs .count:empty{display:none}
+body.v-amplia .wrap{max-width:1640px}body.v-completa .wrap{max-width:none}
+.invtab td:first-child,.invtab th:first-child{position:sticky;left:0;background:var(--surface);z-index:1}.invtab tr.falta td:first-child{background:var(--crit-bg)}
+@media(max-width:760px){#vsel{display:none}}
 nav.tabs button{border:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--ink-3);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--brand)}
 nav.tabs .count{display:inline-block;margin-left:6px;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
@@ -261,6 +264,7 @@ footer .rtab{max-width:420px;margin-top:6px}footer{border-top:1px solid var(--li
       <div class="firm"><div class="mark">NT</div><div><b>NT Consultores &amp; Asociados</b><span>Explorador de resultados</span></div></div>
       <div class="controls">
         <select class="sel" id="msel" aria-label="Mes"></select>
+        <select class="sel" id="vsel" aria-label="Ancho de la vista" title="Ancho de la vista en pantallas grandes"><option value="normal">Vista: normal</option><option value="amplia">Vista: amplia</option><option value="completa">Vista: pantalla completa</option></select>
         <select class="sel" id="rsel" aria-label="Tasa de cambio para USD"><option value="c">Tasa: cierre de mes</option><option value="p">Tasa: promedio del mes</option><option value="d">Tasa: diaria</option></select>
         <div class="seg" role="group" aria-label="Moneda">
           <button id="cbs" aria-pressed="true">Bs</button><button id="cusd" aria-pressed="false">USD</button>
@@ -392,6 +396,9 @@ function start(){
   const ms=$('#msel');ms.innerHTML='<option value="-1">Todo el ejercicio</option>'+D.months.map((m,i)=>`<option value="${i}"${i>lm?' disabled':''}>${mLab(i,true)}</option>`).join('');
   ms.onchange=()=>{S.m=+ms.value;render()};
   $('#rsel').onchange=e=>{S.rm=e.target.value;recalcUsd();$('#foot').innerHTML=footer();render();if(S.drawer)renderDrawer()};
+  const applyV=v=>{document.body.classList.remove('v-amplia','v-completa');if(v!=='normal')document.body.classList.add('v-'+v);$('#vsel').value=v;for(const k in charts)try{charts[k].resize()}catch(_){}};
+  let v0='normal';try{v0=localStorage.getItem('ntvista')||'normal'}catch(_){}applyV(v0);
+  $('#vsel').onchange=e=>{applyV(e.target.value);try{localStorage.setItem('ntvista',e.target.value)}catch(_){}};
   $('#cbs').onclick=()=>setCur('bs');$('#cusd').onclick=()=>setCur('usd');
   document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>go(b.dataset.v));
   const crit=D.alerts.filter(x=>x.s===1).length;
@@ -438,7 +445,7 @@ function rResumen(){
   const per=m<0?'Ejercicio a la fecha':mLab(m,true);
   const k=(cls,col,lab,val,sub)=>`<div class="kpi ${cls}"><div class="lab">${col?`<i class="sw" style="background:var(${col})"></i>`:''}${lab}</div><div class="val num">${money(val)}</div><div class="sub">${sub}</div></div>`;
   const top=topProv(m);
-  $('#v-resumen').innerHTML=`
+  $('#v-resumen').innerHTML=`${SIM()?simBarHtml():''}
   <div class="kpis">
     ${k('','--s-ing','Ingresos netos',ing,per)}
     ${IV?k('','--s-cos','Costo de ventas',cos,'Proyectado · '+pct(cos)):k('','--s-cos','Costos',cos,pct(cos))}
@@ -459,6 +466,7 @@ function rResumen(){
     <div class="panel"><div class="ph"><h2>Principales proveedores</h2><p>Costos y gastos · ${per}</p></div><div class="toplist">${top}</div></div>
   </div>`;
   document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openDrawer(b.dataset.open,{prov:+b.dataset.p}));
+  if(SIM())bindSim();
   const lab=D.months.map((_,i)=>mLab(i));
   const sI=seriesNode('4'),sC=IV?IV.cs.slice():seriesNode('5'),sG=seriesNode('6');
   const dim=(c,i)=>S.m<0||S.m===i?c:c+'55';
@@ -585,6 +593,11 @@ function drawCompare(){
   const lab=[];for(let m=0;m<=D.lastMi;m++)lab.push(mLab(m));
   mkChart('chScn',{type:'line',data:{labels:lab,datasets:SC.map(s=>({label:s[1],data:scen(s[0]).mres,borderColor:css(s[2]),backgroundColor:css(s[2]),tension:.25,pointRadius:3,borderWidth:2}))},options:(()=>{const o=baseOpts();o.plugins.legend={display:true,labels:{boxWidth:10,font:{size:11}}};return o})()});
 }
+function simBarHtml(){const I=D.inv;return `<div class="panel" style="margin-bottom:12px;border-color:var(--gold,#c9a227)"><div class="invset"><b>Probar otro porcentaje <span class="muted" style="font-weight:500">(solo tú lo ves)</span>:</b><label>Utilidad bruta <input id="ipct" type="number" min="0" max="500" step="0.5" value="${S.pct}"> %</label><label>sobre <select id="ibase"><option value="costo"${S.base==='costo'?' selected':''}>el costo</option><option value="ventas"${S.base==='ventas'?' selected':''}>las ventas</option></select></label><button id="ireset" type="button">Volver a ${fmtK.format(I.pct)}%</button><span class="muted">Mueve el número y todo el tablero se recalcula. No se guarda ni lo ve el cliente.</span></div></div>`}
+function bindSim(){const I=D.inv;
+  const badge=()=>{const nf=invCalc('B').rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||'';$('#nInv').classList.toggle('crit',nf>0)};
+  const up=()=>{S.pct=+$('#ipct').value||0;S.base=$('#ibase').value;const keep=document.activeElement&&document.activeElement.id;render();badge();if(keep){const e=document.getElementById(keep);if(e){e.focus();if(e.type==='number'){const v=e.value;e.value='';e.value=v}}}};
+  $('#ipct').oninput=up;$('#ibase').onchange=up;$('#ireset').onclick=()=>{S.pct=I.pct;S.base=I.base;render();badge()}}
 function rInventario(){
   const I=D.inv,R=invCalc('B').rows;
   const T=R.reduce((t,r)=>({com:t.com+V(r,'com'),otr:t.otr+V(r,'otr'),ven:t.ven+V(r,'ven'),costo:t.costo+V(r,'costo')}),{com:0,otr:0,ven:0,costo:0});
@@ -592,11 +605,11 @@ function rInventario(){
   const k=(lab,val,sub)=>`<div class="kpi"><div class="lab">${lab}</div><div class="val num">${val}</div><div class="sub">${sub}</div></div>`;
   const fd=I.iiFecha.split('-').reverse().join('/')+(I.iiLibro?' · tomado de los libros':'');
   let h=`${SIM()?compareHtml():''}<div class="note">Esta empresa lleva <b>inventario periódico</b>: el costo de ventas real solo se conoce con el conteo físico. Mientras tanto lo <b>proyectamos</b> con una utilidad bruta de <b>${pctTxt(S.pct,S.base)}</b>, aplicada <b>en dólares</b>, que es como se fijan los precios. El costo en bolívares queda a su <b>valor histórico</b> (costo promedio), como lo registra la contabilidad y como lo toma el ISLR. Las compras y los otros costos de la mercancía (fletes, gastos de importación y aduana) suman al inventario; el costo de ventas es lo que sale de él.</div>
-  ${SIM()?`<div class="panel" style="margin-bottom:12px"><div class="invset"><b>Probar otro porcentaje:</b><label>Utilidad bruta <input id="ipct" type="number" min="0" max="500" step="0.5" value="${S.pct}"> %</label><label>sobre <select id="ibase"><option value="costo"${S.base==='costo'?' selected':''}>el costo</option><option value="ventas"${S.base==='ventas'?' selected':''}>las ventas</option></select></label><button id="ireset" type="button">Volver a ${fmtK.format(I.pct)}%</button><span class="muted">El cambio solo se ve aquí; no modifica la contabilidad.</span></div></div>`:''}
+  ${SIM()?simBarHtml():''}
   <div class="kpis">
     ${k('Inventario inicial',money(S.cur==='bs'?I.ii:R[0].iniU),'Al '+fd)}
     ${k('Compras + otros costos',money(T.com+T.otr),'Ejercicio a la fecha')}
-    ${k('Costo de ventas',money(T.costo),'Proyectado')}
+    ${k('Costo de la mercancía vendida',money(T.costo),'Proyectado · solo mercancía')}
     ${k('Margen bruto',fmtK.format(Math.round(mb*10)/10)+'%','Sobre las ventas, '+(S.cur==='bs'?'en bolívares':'en dólares'))}
     <div class="kpi result"><div class="lab">Inventario final proyectado</div><div class="val num">${money(V(last,'fin'))}</div><div class="sub">${mLab(last.m,true)}${last.real?' · conteo real':''}</div></div>
   </div>
@@ -608,9 +621,7 @@ function rInventario(){
   </tbody></table></div></div>
   <div class="panel" style="margin-top:12px"><div class="ph"><h2>Inventario final de cada mes</h2><p>Proyectado</p></div><div class="chartbox sm"><canvas id="chInv" role="img" aria-label="Inventario final proyectado por mes"></canvas></div></div>`;
   $('#v-inventario').innerHTML=h;
-  const badge=()=>{const nf=invCalc('B').rows.filter(r=>r.falta>0).length;$('#nInv').textContent=nf||'';$('#nInv').classList.toggle('crit',nf>0)};
-  if(SIM()){drawCompare();const up=()=>{S.pct=+$('#ipct').value||0;S.base=$('#ibase').value;const keep=document.activeElement&&document.activeElement.id;rInventario();badge();if(keep){const e=document.getElementById(keep);if(e){e.focus();if(e.type==='number'){const v=e.value;e.value='';e.value=v}}}};
-    $('#ipct').oninput=up;$('#ibase').onchange=up;$('#ireset').onclick=()=>{S.pct=I.pct;S.base=I.base;rInventario();badge()}}
+  if(SIM()){drawCompare();bindSim()}
   const lab=R.map(r=>mLab(r.m)),data=R.map(r=>V(r,'fin'));
   mkChart('chInv',{type:'line',data:{labels:lab,datasets:[{label:'Inventario final',data,borderColor:css('--s-cos'),backgroundColor:css('--s-cos')+'22',fill:true,tension:.25,pointRadius:3}]},options:baseOpts()});
 }
