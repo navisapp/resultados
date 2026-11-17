@@ -13,7 +13,7 @@ var CFG = {
   MAX_FALLOS: 8            // intentos fallidos de clave antes de bloquear 15 minutos
 };
 var COL = { clave: 1, cliente: 2, rif: 3, carpeta: 4, tablero: 5, codigo: 6, inicio: 7, metodo: 8, activo: 9, ultimo: 10, estado: 11, actualizado: 12,
-  inv: 13, invIni: 14, invFecha: 15, invPct: 16, invBase: 17, invReal: 18 };
+  inv: 13, invIni: 14, invFecha: 15, invPct: 16, invBase: 17, invReal: 18, prueba: 19 };
 var NCOL = 18;
 var INV_HEAD = ['¿Lleva inventario?', 'Inventario inicial (Bs)', 'Fecha inventario inicial', '% utilidad bruta', 'Utilidad sobre', 'Inventario real (opcional)'];
 var INV_NOTA = [
@@ -26,6 +26,11 @@ var INV_NOTA = [
 
 function asegurarColumnas_(sh) {
   var n = Math.max(sh.getMaxRows() - 1, 1);
+  if (!String(sh.getRange(1, COL.prueba).getValue()).trim()) {
+    sh.getRange(1, COL.prueba).setValue('Probar % (solo NT)').setNote('Link para abrir el tablero con la casilla de prueba del %. Solo para uso interno: no se lo envíes al cliente. Aparece cuando la columna M dice SI o PRUEBA.');
+    sh.getRange(1, 1).copyFormatToRange(sh, COL.prueba, COL.prueba, 1, 1);
+    sh.setColumnWidth(COL.prueba, 260);
+  }
   if (sh.getRange(1, COL.inv).getNote().indexOf('PRUEBA') < 0) {
     sh.getRange(1, COL.inv).setNote(INV_NOTA[0]);
     sh.getRange(2, COL.inv, n, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['SI', 'PRUEBA', 'NO'], true).setAllowInvalid(true).build());
@@ -128,6 +133,7 @@ function procesar_(soloFila, desdeCero) {
       r = sh.getRange(fila, 1, 1, NCOL).getValues()[0];
       var res = procesarCliente_(r, tasas, desdeCero);
       sh.getRange(fila, COL.ultimo, 1, 3).setValues([[res.ultimo, res.estado, new Date()]]);
+      sh.getRange(fila, COL.prueba).setValue(invDeFila_(r) && String(r[COL.tablero - 1]).trim() ? String(r[COL.tablero - 1]).trim() + '?simular' : '');
     } catch (e) {
       sh.getRange(fila, COL.estado, 1, 2).setValues([['ERROR: ' + e.message, new Date()]]);
     }
