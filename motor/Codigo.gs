@@ -150,6 +150,12 @@ function completarFila_(sh, fila, r) {
     var f = DriveApp.getFolderById(CFG.ROOT_ID).createFolder(String(r[COL.cliente - 1]).trim());
     r[COL.carpeta - 1] = f.getUrl(); cambios = true;
   }
+  else {  // la carpeta lleva el mismo nombre que la columna Cliente
+    try {
+      var fid = folderId_(r[COL.carpeta - 1]), nb = String(r[COL.cliente - 1]).trim();
+      if (nb && fid !== CFG.ROOT_ID && fid !== CFG.TASAS_ID) { var fo = DriveApp.getFolderById(fid); if (fo.getName() !== nb) fo.setName(nb); }
+    } catch (e) {}
+  }
   if (!String(r[COL.tablero - 1]).trim()) { r[COL.tablero - 1] = CFG.LINK_BASE + r[COL.clave - 1] + '/'; cambios = true; }
   if (!String(r[COL.inicio - 1]).trim()) { r[COL.inicio - 1] = '01'; cambios = true; }
   if (!String(r[COL.metodo - 1]).trim()) { r[COL.metodo - 1] = 'cierre'; cambios = true; }
