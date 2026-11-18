@@ -25,6 +25,7 @@ var INV_NOTA = [
   'Conteos físicos reales, si los hay. Formato: MM/AAAA = monto; separados por punto y coma. Ej.: 06/2026 = 28.116.287,65'];
 
 function asegurarColumnas_(sh) {
+  protegerColumnas_(sh);
   var n = Math.max(sh.getMaxRows() - 1, 1);
   if (!String(sh.getRange(1, COL.prueba).getValue()).trim()) {
     sh.getRange(1, COL.prueba).setValue('Probar % (solo NT)').setNote('Link para abrir el tablero con la casilla de prueba del %. Solo para uso interno: no se lo envíes al cliente. Aparece cuando la columna M dice SI o PRUEBA.');
@@ -44,6 +45,16 @@ function asegurarColumnas_(sh) {
   sh.getRange(2, COL.invIni, n, 1).setNumberFormat('#,##0.00');
   sh.getRange(2, COL.invFecha, n, 1).setNumberFormat('dd/mm/yyyy');
   sh.setColumnWidths(COL.inv, INV_HEAD.length, 150);
+}
+
+/** Aviso (sin clave) al editar las columnas que llena el sistema. El programa sí puede escribirlas. */
+function protegerColumnas_(sh) {
+  var ya = sh.getProtections(SpreadsheetApp.ProtectionType.RANGE).some(function (p) { return p.getDescription().indexOf('NT:') === 0; });
+  if (ya) return;
+  var cols = [['A', 'clave del link'], ['D', 'link de la carpeta'], ['E', 'link del tablero'], ['F', 'código de acceso'],
+    ['J', 'último mes'], ['K', 'estado'], ['L', 'última actualización'], ['S', 'link de prueba']];
+  cols.forEach(function (c) { sh.getRange(c[0] + ':' + c[0]).protect().setDescription('NT: ' + c[1] + ' (lo llena el sistema)').setWarningOnly(true); });
+  sh.getRange('1:1').protect().setDescription('NT: títulos de columnas').setWarningOnly(true);
 }
 
 /** Lee la configuración de inventario de una fila de la hoja */
