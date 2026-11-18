@@ -203,9 +203,9 @@ function procesarCliente_(r, tasas, desdeCero) {
     vistos[id] = true;
     var prev = datos.files[id];
     if (prev && prev.mod === mod) continue;
-    var L = NT.parseLedger(leerCeldas_(f));
-    if (!L.periodo) throw new Error('El archivo "' + name + '" no parece un Libro Mayor de Galac (no encontré el período).');
-    datos.files[id] = { name: name, mod: mod, periodo: L.periodo, descuadres: L.descuadres, empresa: L.empresa, rif: L.rif,
+    var L = NT.parseMayor(leerCeldas_(f));
+    if (!L.periodo) throw new Error('El archivo "' + name + '" no parece un Libro Mayor de Galac ni un Mayor Analítico de Profit (no encontré el período).');
+    datos.files[id] = { name: name, mod: mod, periodo: L.periodo, descuadres: L.descuadres, empresa: L.empresa, rif: L.rif, sistema: L.sistema || 'Galac', nombres: L.nombres || null,
       movs: L.movs.map(function (m) { return [m.a, m.an, m.f, m.c, m.t, m.n, m.p, m.r, m.d, m.db, m.hb]; }) };
     hayCambios = true;
   }
@@ -213,20 +213,27 @@ function procesarCliente_(r, tasas, desdeCero) {
   var ids = Object.keys(datos.files);
   if (!ids.length) return { ultimo: '', estado: 'Sin mayor cargado: sube el Libro Mayor de Galac a la carpeta' };
 
-  // cada mes lo aporta el archivo más reciente que lo cubre
+  // cada mes y grupo de cuentas (4, 5, 6, 7) lo aporta el archivo más reciente que lo cubre
+  // (así sirven un mayor completo o varios archivos por grupo, como los de Profit)
   ids.sort(function (a, b) { return datos.files[a].mod - datos.files[b].mod; });
   var dueño = {};
-  ids.forEach(function (id) { var p = datos.files[id].periodo; mesesEntre_(p.desde, p.hasta).forEach(function (m) { dueño[m] = id; }); });
+  ids.forEach(function (id) {
+    var p = datos.files[id].periodo, gs = {};
+    datos.files[id].movs.forEach(function (x) { gs[String(x[0]).charAt(0)] = 1; });
+    mesesEntre_(p.desde, p.hasta).forEach(function (m) { Object.keys(gs).forEach(function (g) { dueño[m + '|' + g] = id; }); });
+  });
   var movs = [];
   ids.forEach(function (id) {
     datos.files[id].movs.forEach(function (x) {
-      if (dueño[x[2].slice(0, 7)] === id) movs.push({ a: x[0], an: x[1], f: x[2], c: x[3], t: x[4], n: x[5], p: x[6], r: x[7], d: x[8], db: x[9], hb: x[10] });
+      if (dueño[x[2].slice(0, 7) + '|' + String(x[0]).charAt(0)] === id) movs.push({ a: x[0], an: x[1], f: x[2], c: x[3], t: x[4], n: x[5], p: x[6], r: x[7], d: x[8], db: x[9], hb: x[10] });
     });
   });
   var desc = [];
   ids.forEach(function (id) { if (datos.files[id].descuadres.length) desc = desc.concat(datos.files[id].descuadres); });
 
   var cat = datos.cat || { nombres: {}, empresa: '', rif: '' };
+  var sistema = ids.some(function (id) { return datos.files[id].sistema === 'Profit'; }) ? 'Profit' : 'Galac';
+  if (!datos.cat) { var nb = {}; ids.forEach(function (id) { var n = datos.files[id].nombres || {}; Object.keys(n).forEach(function (k) { nb[k] = n[k]; }); }); cat = { nombres: nb, empresa: '', rif: '' }; }
   var meta = { empresa: String(r[COL.cliente - 1]).trim() || cat.empresa || datos.files[ids[0]].empresa, rif: String(r[COL.rif - 1]).replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
     inicioMes: +String(r[COL.inicio - 1]).replace(/\D/g, '') || 1, hoy: Utilities.formatDate(new Date(), 'America/Caracas', 'yyyy-MM-dd'),
     inv: invDeFila_(r) };
@@ -245,8 +252,8 @@ function procesarCliente_(r, tasas, desdeCero) {
   guardarJson_(folder, CFG.DATA_NAME, datos);
 
   var faltan = pkg.alerts.filter(function (a) { return a.s === 1; }).length;
-  var estado = (desc.length ? 'REVISAR: no cuadra con Galac en ' + desc.join(', ') : 'OK · cuadra con Galac') +
-    ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat ? '' : ' · falta el Catálogo de Cuentas') +
+  var estado = (desc.length ? 'REVISAR: no cuadra con ' + sistema + ' en ' + desc.join(', ') : 'OK · cuadra con ' + sistema) +
+    ' · ' + pkg.alerts.length + ' alertas (' + faltan + ' faltantes)' + (datos.cat || sistema === 'Profit' ? '' : ' · falta el Catálogo de Cuentas') +
     (pkg.inv ? ' · inventario ' + (pkg.inv.oculto ? 'EN PRUEBA (el cliente no lo ve) ' : '') + pkg.inv.pct + '% s/' + pkg.inv.base + (pkg.inv.ii ? '' : ' (FALTA inventario inicial)') + (pkg.inv.c.length ? '' : ' (no encontré cuentas de compras)') : '') + pub;
   return { ultimo: pkg.months[pkg.lastMi], estado: estado };
 }

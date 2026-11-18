@@ -89,6 +89,71 @@ var NT = (function () {
     return { periodo: periodo, empresa: empresa, rif: rif, movs: movs.map(enrich), totales: totales, descuadres: bad };
   }
 
+  /** ¿Es un Mayor Analítico de Profit Plus? */
+  function isProfit(rows) {
+    for (var r = 0; r < Math.min(6, rows.length); r++) for (var c = 0; c < Math.min(6, rows[r].length); c++) if (/Profit Plus/i.test(s(rows[r][c]))) return true;
+    return false;
+  }
+  /** Lee la fecha de una celda Profit: fecha real, número serial de Excel o texto dd/mm/aaaa */
+  function profitDate(v) {
+    if (Object.prototype.toString.call(v) === '[object Date]') return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
+    if (typeof v === 'number' && v > 30000 && v < 80000) { var d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+    var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s(v)); if (m) return m[3] + '-' + pad(+m[2]) + '-' + pad(+m[1]);
+    return '';
+  }
+  /**
+   * Mayor Analítico de Profit Plus Contabilidad (un archivo por grupo de cuentas o todo junto).
+   * El grupo 8 de Profit (Otros ingresos y egresos) se lleva al grupo 7 del tablero.
+   */
+  function parseProfit(rows) {
+    var empresa = '', rif = '', hasta = '', col = { comp: 0, fecha: 3, doc: 11, desc: 14, debe: 21, haber: 24 };
+    for (var r0 = 0; r0 < Math.min(14, rows.length); r0++) {
+      var v0 = rows[r0];
+      for (var c = 0; c < v0.length; c++) {
+        var x = s(v0[c]);
+        if (r0 === 1 && c === 1 && x && !empresa) empresa = x;
+        if (/^R\.?I\.?F\.?:?$/i.test(x)) rif = s(v0[c + 1]).replace(/[^A-Z0-9]/gi, '');
+        var hm = /Saldo a la fecha\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i.exec(x); if (hm) hasta = hm[3] + '-' + pad(+hm[2]) + '-' + pad(+hm[1]);
+      }
+      if (!empresa && r0 === 1) empresa = s(v0[1]) || s(v0[0]);
+    }
+    var mapG = function (a) { return a.charAt(0) === '8' ? '7' + a.slice(1) : a; };
+    for (var rr = 0; rr < rows.length; rr++) { var hit = -1; for (var cc = 1; cc < 8; cc++) if (profitDate(rows[rr][cc]) && /^\d/.test(s(rows[rr][0]))) { hit = cc; break; } if (hit >= 0) { col.fecha = hit; break; } }
+    var nombres = {}, movs = [], totales = {}, acct = null, acctName = '';
+    for (var r = 0; r < rows.length; r++) {
+      var v = rows[r], txt = v.map(s).join(' ');
+      var tm = /Total de\s+([\d.]+?)\.?\s/.exec(txt + ' ');
+      if (tm) { var ta = mapG(tm[1].replace(/\.$/, '')); if (/^\d+(\.\d+)*$/.test(ta) && ta.split('.').length >= 4) totales[ta] = { debe: num(v[col.debe]), haber: num(v[col.haber]) }; continue; }
+      var f = profitDate(v[col.fecha]);
+      if (f && s(v[col.comp]) !== '') {
+        if (!acct || '4567'.indexOf(acct.charAt(0)) < 0) continue;
+        var raw = s(v[col.desc]), doc = s(v[col.doc]).replace(/^0+(?=\d)/, ''), tipo = 'ASIENTO', ter = '', trif = '', desc = raw, m;
+        if ((m = /^COMP\.,\s*0*(\d+)\s*([JVEGPC]\d{6,10})?\s*\/\s*(.*)$/i.exec(raw))) { tipo = 'FAC'; doc = m[1]; trif = (m[2] || '').toUpperCase(); ter = m[3].trim(); desc = 'Compra ' + ter; }
+        else if ((m = /^V\.CON,\s*\S*?([JVEGP]\d{6,10})?\s*\/\s*(.*)$/i.exec(raw))) { tipo = 'FAC'; trif = (m[1] || '').toUpperCase(); ter = m[2].trim(); desc = 'Venta ' + ter; }
+        else if ((m = /^VENT\.0*(\d+).*?([JVEGP]\d{6,10})\s+(.*)$/i.exec(raw))) { tipo = 'FAC'; doc = m[1]; trif = m[2].toUpperCase(); ter = m[3].trim(); desc = 'Venta ' + ter; }
+        else if ((m = /^OrdP\.Eg(?:\.B)?,\s*(?:0*(\d+)\/)?\s*(.*)$/i.exec(raw))) { desc = (m[2] || 'ORDEN DE PAGO').trim(); }
+        else if ((m = /^(Egreso|Ingreso)\.?,\s*([A-Z]{2}),\s*(\d+)-?\s*(.*)$/i.exec(raw))) { desc = (m[4] ? m[4].trim() : '') || (m[2].toUpperCase() === 'ND' ? 'NOTA DE DEBITO BANCARIA' : 'MOVIMIENTO BANCARIO'); }
+        // en costos, la venta registrada no es un proveedor: se agrupa como costo de la venta
+        if (acct.charAt(0) === '5' && /^(V\.CON|VENT\.)/i.test(raw)) { tipo = 'ASIENTO'; desc = 'COSTO DE VENTA - ' + ter; ter = ''; trif = ''; }
+        movs.push({ a: acct, an: acctName, f: f, c: s(v[col.comp]).replace(/\.0$/, ''), t: tipo, n: doc, p: ter, r: trif, d: desc, db: num(v[col.debe]), hb: num(v[col.haber]) });
+        continue;
+      }
+      var code = s(v[0]).replace(/\.$/, '');
+      if (/^\d+(\.\d+)*$/.test(code)) {
+        var nm = ''; for (var k = 1; k < Math.min(v.length, 18); k++) { if (s(v[k])) { nm = s(v[k]); break; } }
+        if (nm) { var mc = mapG(code); nombres[mc] = nm; if (mc.split('.').length >= 4) { acct = mc; acctName = nm; } }
+      }
+    }
+    var sums = {}, bad = [];
+    movs.forEach(function (m) { if (!sums[m.a]) sums[m.a] = [0, 0]; sums[m.a][0] += m.db; sums[m.a][1] += m.hb; });
+    Object.keys(totales).forEach(function (a) { var sm = sums[a] || [0, 0]; if (Math.abs(sm[0] - totales[a].debe) > 0.05 || Math.abs(sm[1] - totales[a].haber) > 0.05) bad.push(a); });
+    var desde = movs.reduce(function (a, m) { return !a || m.f < a ? m.f : a; }, '');
+    var periodo = (desde && hasta) ? { desde: desde.slice(0, 7) + '-01', hasta: hasta } : null;
+    return { periodo: periodo, empresa: empresa, rif: rif, movs: movs, totales: totales, descuadres: bad, nombres: nombres, sistema: 'Profit' };
+  }
+  /** Lee un mayor de Galac o de Profit Plus */
+  function parseMayor(rows) { return isProfit(rows) ? parseProfit(rows) : parseLedger(rows); }
+
   function enrich(m) {
     var desc = m.desc.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     var ref = m.ref.join('');
@@ -322,6 +387,6 @@ var NT = (function () {
       c: c, o: o, x: x, real: real, lib: lib, sim: !!cfg.sim, oculto: !!cfg.oculto };
   }
 
-  return { parseCatalog: parseCatalog, parseLedger: parseLedger, parseRates: parseRates, rateChecks: rateChecks, buildPackage: buildPackage };
+  return { parseCatalog: parseCatalog, parseLedger: parseLedger, parseProfit: parseProfit, parseMayor: parseMayor, parseRates: parseRates, rateChecks: rateChecks, buildPackage: buildPackage };
 })();
 if (typeof module !== 'undefined') module.exports = NT;
