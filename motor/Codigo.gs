@@ -126,8 +126,20 @@ function eliminarSeleccionado() {
 /* ===================== PROCESO ===================== */
 function hoja_() { return SpreadsheetApp.openById(CFG.SHEET_ID).getSheets()[0]; }
 
-function procesar_(soloFila, desdeCero) {
-  var t0 = Date.now(), sh = hoja_(), last = sh.getLastRow();
+/** Si una actualización no alcanzó a terminar, sigue sola un minuto después desde donde quedó */
+function continuarActualizacion() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'continuarActualizacion') ScriptApp.deleteTrigger(t); });
+  var desde = +PropertiesService.getScriptProperties().getProperty('CONTINUAR_DESDE') || 2;
+  procesar_(null, false, desde);
+}
+function programarContinuacion_(fila) {
+  PropertiesService.getScriptProperties().setProperty('CONTINUAR_DESDE', String(fila));
+  var ya = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'continuarActualizacion'; });
+  if (!ya) ScriptApp.newTrigger('continuarActualizacion').timeBased().after(60 * 1000).create();
+}
+
+function procesar_(soloFila, desdeCero, desdeFila) {
+  var t0 = Date.now(), sh = hoja_(), last = sh.getLastRow(), pendiente = 0;
   if (last < 2) return;
   var tasas = cargarTasas_();
   asegurarColumnas_(sh);
@@ -135,7 +147,8 @@ function procesar_(soloFila, desdeCero) {
   for (var i = 0; i < rows.length; i++) {
     var fila = i + 2;
     if (soloFila && fila !== soloFila) continue;
-    if (Date.now() - t0 > CFG.MAX_MS) { sh.getRange(fila, COL.estado).setValue('Pendiente: se completa en la próxima actualización'); continue; }
+    if (desdeFila && fila < desdeFila) continue;
+    if (Date.now() - t0 > CFG.MAX_MS) { if (!pendiente) pendiente = fila; sh.getRange(fila, COL.estado).setValue('Pendiente: sigue sola en 1 minuto'); continue; }
     var r = rows[i];
     if (!String(r[COL.cliente - 1]).trim()) continue;
     if (String(r[COL.activo - 1]).toUpperCase().trim() === 'NO') continue;
@@ -150,6 +163,7 @@ function procesar_(soloFila, desdeCero) {
     }
   }
   escribirTasas_(tasas);
+  if (pendiente && !soloFila) { try { programarContinuacion_(pendiente); } catch (e) {} }
 }
 
 /** Completa clave, código, carpeta y link para clientes nuevos */
@@ -192,10 +206,17 @@ function procesarCliente_(r, tasas, desdeCero) {
     var f = it.next(), name = f.getName(), id = f.getId(), mod = f.getLastUpdated().getTime();
     if (name.charAt(0) === '_') continue;
     if (!/\.(xls|xlsx)$/i.test(name) && f.getMimeType() !== MimeType.GOOGLE_SHEETS) continue;
-    var esCat = /cat[aá]logo/i.test(name);
+    var esCat = /cat[aá]logo|plan\s*de\s*cuentas?/i.test(name), celdas = null;
+    if (!esCat) {  // por si el catálogo viene con otro nombre: se reconoce por su contenido
+      var prevF = datos.files[id];
+      if (!(prevF && prevF.mod === mod) && !(datos.cat && datos.cat.id === id && datos.cat.mod === mod)) {
+        celdas = leerCeldas_(f);
+        if (!NT.parseMayor(celdas).periodo && Object.keys(NT.parseCatalog(celdas).nombres).length >= 10) esCat = true;
+      } else if (datos.cat && datos.cat.id === id) esCat = true;
+    }
     if (esCat) {
       if (!datos.cat || datos.cat.id !== id || datos.cat.mod !== mod) {
-        var c = NT.parseCatalog(leerCeldas_(f));
+        var c = NT.parseCatalog(celdas || leerCeldas_(f));
         datos.cat = { id: id, mod: mod, nombres: c.nombres, empresa: c.empresa, rif: c.rif }; hayCambios = true;
       }
       continue;
@@ -203,7 +224,7 @@ function procesarCliente_(r, tasas, desdeCero) {
     vistos[id] = true;
     var prev = datos.files[id];
     if (prev && prev.mod === mod) continue;
-    var L = NT.parseMayor(leerCeldas_(f));
+    var L = NT.parseMayor(celdas || leerCeldas_(f));
     if (!L.periodo) throw new Error('El archivo "' + name + '" no parece un Libro Mayor de Galac ni un Mayor Analítico de Profit (no encontré el período).');
     datos.files[id] = { name: name, mod: mod, periodo: L.periodo, descuadres: L.descuadres, empresa: L.empresa, rif: L.rif, sistema: L.sistema || 'Galac', nombres: L.nombres || null,
       movs: L.movs.map(function (m) { return [m.a, m.an, m.f, m.c, m.t, m.n, m.p, m.r, m.d, m.db, m.hb]; }) };
