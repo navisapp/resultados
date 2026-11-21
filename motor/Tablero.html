@@ -154,6 +154,7 @@ section.view{display:grid;gap:18px}
 .invtab td,.invtab th{white-space:nowrap}.invtab tr.falta td{background:var(--crit-bg)}.invtab tr.tot td{font-weight:700;border-top:2px solid var(--line)}
 .invset{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;font-size:13px}.invset select,.invset button{padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink);cursor:pointer}.invset input{width:84px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)}
 .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--warn-bg);color:var(--warn);margin-left:6px;vertical-align:middle}
+.estim{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;background:var(--warn-bg);border:1px solid var(--warn);border-radius:10px;padding:12px 14px;margin:12px 0}.estim .t{font-weight:700;margin-bottom:4px}.estim .d{font-size:13px;color:var(--ink-2);line-height:1.5}@media(max-width:620px){.estim{grid-template-columns:minmax(0,1fr)}}
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap;letter-spacing:.02em}
 .pill.s1{background:var(--crit-bg);color:var(--crit)} .pill.s2{background:var(--warn-bg);color:var(--warn)} .pill.s3{background:var(--info-bg);color:var(--info)}
 .acard .t{font-weight:600}
@@ -448,12 +449,12 @@ function rResumen(){
   $('#v-resumen').innerHTML=`${SIM()?simBarHtml():''}
   <div class="kpis">
     ${k('','--s-ing','Ingresos netos',ing,per)}
-    ${IV?k('','--s-cos','Costo de ventas',cos,'Proyectado · '+pct(cos)):k('','--s-cos','Costos',cos,pct(cos))}
+    ${IV?k('','--s-cos','Costo de ventas <span class="tag">estimado</span>',cos,'Utilidad bruta supuesta '+fmtK.format(+S.pct||0)+'% s/'+S.base+' · '+pct(cos)):k('','--s-cos','Costos',cos,pct(cos))}
     ${k('','--s-gas','Gastos',gas,pct(gas))}
     ${k('','--s-otr','Otros ingresos y egresos',otr,otr>=0?'neto a favor':'neto en contra')}
-    ${k('result','','Resultado contable',res,ing?Math.round(res/ing*1000)/10+'% de margen':'')}
+    ${k('result','',IV?'Resultado <span class="tag">estimado</span>':'Resultado contable',res,ing?Math.round(res/ing*1000)/10+'% de margen':'')}
   </div>
-  ${alertBanner()}
+  ${IV?estimHtml():''}${alertBanner()}
   <div class="grid2">
     <div class="panel"><div class="ph"><h2>Mes a mes</h2><p>Haz clic en un mes para filtrar todo el tablero</p></div>
       <div class="legend"><span><i style="background:var(--s-ing)"></i>Ingresos netos</span><span><i style="background:var(--s-cos)"></i>${IV?'Costo de ventas':'Costos'}</span><span><i style="background:var(--s-gas)"></i>Gastos</span></div>
@@ -529,6 +530,12 @@ function rCuentas(){
 
 /* ---------------- INVENTARIO (proyección por margen bruto) ---------------- */
 const SIM=()=>!!(D.inv&&(D.inv.sim||/[?&]simular\b/i.test(location.search)));
+function estimHtml(){
+  const p=+S.pct||0,f=v=>fmtK.format(Math.round(v*10)/10);
+  const mv=S.base==='costo'?p/(100+p)*100:p, mc=S.base==='costo'?p:(p<100?p/(100-p)*100:0);
+  const ej=S.base==='costo'?`la mercancía que le cuesta <b>$100</b> la vende en <b>$${f(100+p)}</b>`:`de cada <b>$100</b> que vende, <b>$${f(100-p)}</b> es lo que le costó la mercancía`;
+  return `<div class="estim"><span class="pill s2">Estimación</span><div><div class="t">El costo de ventas y el inventario de esta página son una <u>estimación</u>, no el resultado definitivo</div>
+  <div class="d">Como esta empresa lleva <b>inventario periódico</b>, el costo real de lo vendido solo se conoce con el <b>conteo físico al cierre</b>. Mientras tanto lo estimamos suponiendo una <b>utilidad bruta de ${f(mc)}% sobre el costo</b> (equivale a <b>${f(mv)}% de las ventas</b>), medida en dólares: ${ej}. En bolívares el porcentaje se ve más alto porque la mercancía comprada meses atrás quedó registrada a la tasa de ese momento. Esa es la ganancia <b>antes de gastos</b>; después se restan los gastos de la empresa para llegar al resultado. Este porcentaje es un supuesto de trabajo que ajustaremos con tus datos reales y sirve de base para la siguiente etapa: la proyección de impuestos.</div></div></div>`}
 const pctTxt=(p,b)=>{p=+p||0;const alt=b==='costo'?p/(100+p)*100:(p<100?p/(100-p)*100:0);const f=v=>fmtK.format(Math.round(v*10)/10)+'%';return b==='costo'?`${f(p)} sobre el costo (${f(alt)} de margen sobre ventas)`:`${f(p)} de margen sobre ventas (${f(alt)} sobre el costo)`};
 function mRate(m){const r=D.mr[D.months[m]];if(!r)return 0;return S.rm==='c'?r.c:r.p}
 function invCalc(mode){
@@ -604,14 +611,14 @@ function rInventario(){
   const last=R[R.length-1],faltas=R.filter(r=>r.falta>0),mb=T.ven?(1-T.costo/T.ven)*100:0;
   const k=(lab,val,sub)=>`<div class="kpi"><div class="lab">${lab}</div><div class="val num">${val}</div><div class="sub">${sub}</div></div>`;
   const fd=I.iiFecha.split('-').reverse().join('/')+(I.iiLibro?' · tomado de los libros':'');
-  let h=`${SIM()?compareHtml():''}<div class="note">Esta empresa lleva <b>inventario periódico</b>: el costo de ventas real solo se conoce con el conteo físico. Mientras tanto lo <b>proyectamos</b> con una utilidad bruta de <b>${pctTxt(S.pct,S.base)}</b>, aplicada <b>en dólares</b>, que es como se fijan los precios. El costo en bolívares queda a su <b>valor histórico</b> (costo promedio), como lo registra la contabilidad y como lo toma el ISLR. Las compras y los otros costos de la mercancía (fletes, gastos de importación y aduana) suman al inventario; el costo de ventas es lo que sale de él.</div>
+  let h=`${SIM()?compareHtml():''}${estimHtml()}
   ${SIM()?simBarHtml():''}
   <div class="kpis">
     ${k('Inventario inicial',money(S.cur==='bs'?I.ii:R[0].iniU),'Al '+fd)}
     ${k('Compras + otros costos',money(T.com+T.otr),'Ejercicio a la fecha')}
-    ${k('Costo de la mercancía vendida',money(T.costo),'Proyectado · solo mercancía')}
+    ${k('Costo de la mercancía vendida',money(T.costo),'Estimado · solo mercancía')}
     ${k('Margen bruto',fmtK.format(Math.round(mb*10)/10)+'%','Sobre las ventas, '+(S.cur==='bs'?'en bolívares':'en dólares'))}
-    <div class="kpi result"><div class="lab">Inventario final proyectado</div><div class="val num">${money(V(last,'fin'))}</div><div class="sub">${mLab(last.m,true)}${last.real?' · conteo real':''}</div></div>
+    <div class="kpi result"><div class="lab">Inventario final estimado</div><div class="val num">${money(V(last,'fin'))}</div><div class="sub">${mLab(last.m,true)}${last.real?' · conteo real':''}</div></div>
   </div>
   ${faltas.length?`<div class="acard" style="grid-template-columns:auto minmax(0,1fr);margin-top:12px"><span class="pill s1">Revisar</span><div><div class="t">Ventas mayores a la mercancía disponible en ${faltas.length} mes(es)</div><div class="d">Con este porcentaje, en ${faltas.map(r=>mLab(r.m,true)).join(', ')} se vendió más de lo que había en inventario. Puede haber compras o importaciones sin registrar, un inventario inicial más alto o un margen real distinto. El inventario final se dejó en cero.</div></div></div>`:''}
   <div class="panel" style="margin-top:12px"><div class="ph"><h2>Movimiento del inventario mes a mes</h2><p>Inventario inicial + compras + otros costos − costo de ventas = inventario final</p></div>
@@ -619,7 +626,7 @@ function rInventario(){
   ${R.map(r=>{const mg=V(r,'ven')?(1-V(r,'costo')/V(r,'ven'))*100:0;return `<tr class="${r.falta>0?'falta':''}"><td>${mLab(r.m,true)}${r.real?'<span class="tag" style="background:var(--info-bg);color:var(--info)">real</span>':''}${r.falta>0?'<span class="tag" style="background:var(--crit-bg);color:var(--crit)">falta</span>':''}</td><td class="r num">${money(V(r,'ini'))}</td><td class="r num">${money(V(r,'com'))}</td><td class="r num">${money(V(r,'otr'))}</td><td class="r num">${money(V(r,'disp'))}</td><td class="r num">${money(V(r,'ven'))}</td><td class="r num" style="font-weight:600">${money(V(r,'costo'))}</td><td class="r num">${money(V(r,'fin'))}</td><td class="r num">${V(r,'ven')?fmtK.format(Math.round(mg*10)/10)+'%':'—'}</td></tr>`}).join('')}
   <tr class="tot"><td>Total</td><td class="r num">${money(V(R[0],'ini'))}</td><td class="r num">${money(T.com)}</td><td class="r num">${money(T.otr)}</td><td></td><td class="r num">${money(T.ven)}</td><td class="r num">${money(T.costo)}</td><td class="r num">${money(V(last,'fin'))}</td><td class="r num">${fmtK.format(Math.round(mb*10)/10)}%</td></tr>
   </tbody></table></div></div>
-  <div class="panel" style="margin-top:12px"><div class="ph"><h2>Inventario final de cada mes</h2><p>Proyectado</p></div><div class="chartbox sm"><canvas id="chInv" role="img" aria-label="Inventario final proyectado por mes"></canvas></div></div>`;
+  <div class="panel" style="margin-top:12px"><div class="ph"><h2>Inventario final de cada mes</h2><p>Estimado</p></div><div class="chartbox sm"><canvas id="chInv" role="img" aria-label="Inventario final proyectado por mes"></canvas></div></div>`;
   $('#v-inventario').innerHTML=h;
   if(SIM()){drawCompare();bindSim()}
   const lab=R.map(r=>mLab(r.m)),data=R.map(r=>V(r,'fin'));
